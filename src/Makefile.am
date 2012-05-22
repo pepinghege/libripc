@@ -14,3 +14,7 @@ if NETARCH_LOCAL
   SUBDIRS=local
   libripc_la_LIBADD= local/libripc.la
 endif
+if NETARCH_IWARP
+  SUBDIRS=iwarp
+  libripc_la_LIBADD= iwarp/libripc.la
+endif
