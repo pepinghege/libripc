@@ -31,6 +31,71 @@ pthread_mutex_t services_mutex, remotes_mutex;
 
 uint8_t netarch_init(void) {
         DEBUG("netarch_init");
+	context.na.device_context = NULL;
+	struct ibv_context *device_context = NULL;
+	struct ibv_context **list = NULL;
+	int num_devices = 0;
+
+	list = rdma_get_devices(&num_devices);
+	if (!list) {
+		panic("Failed to get device list: %s", strerror(errno));
+	}
+
+	device = *list;
+	if (!device_context) {
+		panic("No devices available!");
+	}
+
+	DEBUG("Taking 1st of %d devices.", num_devices);
+	context.na.device_context = device_context;
+	context.na.pd = siw_alloc_od(device_context);
+	if (!context.na.pd) {
+		panic("Failed to allocate protection domain!");
+	} else {
+		DEBUG("Allocated protection domain: %u", context.na.pd->handle);
+	}
+
+	struct ibv_device_attr device_attr;
+	siw_query_device(device_context, &device_attr);
+	DEBUG("Chosen device has %d physical ports", device_attr.phys_port_cnt);
+        DEBUG("Maximum mr size: %lu", device_attr.max_mr_size);
+        DEBUG("Maximum mr count: %u", device_attr.max_mr);
+        DEBUG("Maximum number of outstanding wrs: %u", device_attr.max_qp_wr);
+        DEBUG("Maximum number of outstanding cqes: %u", device_attr.max_cqe);
+        DEBUG("Maximum number of sges per wr: %u", device_attr.max_sge);
+        DEBUG("Local CA ACK delay: %u", device_attr.local_ca_ack_delay);
+        DEBUG("Page size caps: %lx", device_attr.page_size_cap);
+
+	uint32_t i;
+	int j;
+	struct ibv_port_attr port_attr;
+	union ibv_gid gid;
+	bool found_active_port = 0;
+
+	for (i = 1; i <= device_attr.phys_port_cnt; ++i) {
+		siw_query_port(device_context, i, &port_attr);
+                DEBUG("Port %d: Found LID %u", i, port_attr.lid);
+                DEBUG("Port %d has %d GIDs", i, port_attr.gid_tbl_len);
+                DEBUG("Port %d's maximum message size is %u", i, port_attr.max_msg_sz);
+                DEBUG("Port %d's status is %s", i, ibv_port_state_str(port_attr.state));
+
+		if (!found_active_port && port_attr.state == IBV_PORT_ACTIVE) {
+			DEBUG("Port %d is active, we shall use it", i);
+			context.na.lid		= port_attr.lid;
+			context.na.port_num	= i;
+			found_active_port = 1;
+		}
+	}
+
+	rdma_service_id.na.no_cchannel	= true;
+	rdma_service_id.number		= 0xffff;
+	//queues for sending connection requests
+	alloc_queue_state(&rdma_service_id);
+
+	context.initialized = true;
+
+	rdma_free_devices(list);
+
         return true;
 }
 
