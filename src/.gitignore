@@ -3,6 +3,7 @@
 /stamp-h1
 .deps
 .libs
+*.swp
 /libripc.o
 /libripc.lo
 /libripc.la

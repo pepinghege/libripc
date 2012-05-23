@@ -1,3 +1,4 @@
+*.swp
 /ripc.lo
 /resources.lo
 /libripc.la

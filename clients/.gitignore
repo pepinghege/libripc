@@ -3,6 +3,7 @@
 /config.h
 .deps
 .libs
+*.swp
 /client.o
 /client
 /server
