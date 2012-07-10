@@ -48,6 +48,9 @@ typedef bool _Bool;
 #ifdef NETARCH_LOCAL
 #include <local/common.h>
 #endif
+#ifdef NETARCH_IWARP
+#include <iwarp/common.h>
+#endif
 
 #include <memory.h>
 

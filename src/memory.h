@@ -30,6 +30,9 @@
 #ifdef NETARCH_LOCAL
 #include <local/memory.h>
 #endif 
+#ifdef NETARCH_IWARP
+#include <iwarp/memory.h>
+#endif 
 
 
 typedef struct mem_buf {
