@@ -15,35 +15,13 @@
  *  along with libRIPC.  If not, see <http://www.gnu.org/licenses/>.
  */
 #ifndef RESOLVER_H_
-#define RESOLVER_H_
-
-#include "config.h"
-#include "common.h"
-
-#ifdef NETARCH_INFINIBAND
-#include <infiniband/resolver.h>
+#include "../resolver.h"
 #endif
-#ifdef NETARCH_BGP
-#include <bgp/resolver.h>
-#endif 
-#ifdef NETARCH_LOCAL
-#include <local/resolver.h>
-#endif 
-#ifdef NETARCH_IWARP
-#include <iwarp/resolver.h>
-#endif 
 
-struct resolver_msg {
-	enum msg_type type;
-	uint16_t dest_service_id;
-	uint16_t src_service_id;
-	uint16_t lid;
-	struct netarch_resolver_msg na;
+struct netarch_resolver_msg {
 };
 
-extern pthread_mutex_t resolver_mutex;
+#ifndef __BGP__RESOLVER_H__
+#define __BGP__RESOLVER_H__
 
-void resolver_init(void);
-void resolve(uint16_t src, uint16_t dest);
-
-#endif /* RESOLVER_H_ */
+#endif /* !__BGP__RESOLVER_H__ */

@@ -261,7 +261,7 @@ reply:
 	wr.wr_id = 0xdeadbeef;
 	wr.wr.ud.ah = remote->na.ah;
 	wr.wr.ud.remote_qkey = 0xffff;
-	wr.wr.ud.remote_qpn = msg->na.response_qpn;
+	wr.wr.ud.remote_qpn = msg->response_qpn;
 
 	struct ibv_send_wr *bad_wr;
 
@@ -272,7 +272,7 @@ reply:
     	if (ret) {
     		ERROR("Failed to send connect response to remote %u (qp %u): %s",
 				msg->src_service_id,
-				msg->na.response_qpn,
+				msg->response_qpn,
 				strerror(ret));
 		goto error;
 	} else {

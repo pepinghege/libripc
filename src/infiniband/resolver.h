@@ -15,7 +15,7 @@
  *  You should have received a copy of the GNU Lesser General Public License
  *  along with libRIPC.  If not, see <http://www.gnu.org/licenses/>.
  */
-#ifndef RESOURCES_H_
+#ifndef RESOLVER_H_
 #include "../resolver.h"
 #endif
 
