@@ -241,7 +241,7 @@ reply:
 	msg->lid = context.na.lid;
 	msg->qpn = remote->na.rdma_qp->qp_num;
 	msg->psn = psn;
-	//msg->response_qpn = rdma_qp->qp_num;
+	//msg->na.response_qpn = rdma_qp->qp_num;
 	msg->type = RIPC_RDMA_CONN_REPLY;
 
 	struct ibv_mr *msg_mr = used_buf_list_get(msg).na;
@@ -261,7 +261,7 @@ reply:
 	wr.wr_id = 0xdeadbeef;
 	wr.wr.ud.ah = remote->na.ah;
 	wr.wr.ud.remote_qkey = 0xffff;
-	wr.wr.ud.remote_qpn = msg->response_qpn;
+	wr.wr.ud.remote_qpn = msg->na.response_qpn;
 
 	struct ibv_send_wr *bad_wr;
 
@@ -272,13 +272,13 @@ reply:
     	if (ret) {
     		ERROR("Failed to send connect response to remote %u (qp %u): %s",
 				msg->src_service_id,
-				msg->response_qpn,
+				msg->na.response_qpn,
 				strerror(ret));
 		goto error;
 	} else {
 		DEBUG("Sent rdma connect response to remote %u (qp %u), containing lid %u, qpn %u and psn %u",
 				msg->src_service_id,
-				msg->response_qpn,
+				msg->na.response_qpn,
 				msg->lid,
 				msg->qpn,
 				msg->psn);
@@ -413,8 +413,8 @@ void *start_responder(void *arg) {
 	response = (struct resolver_msg *)resp_mr->addr;
 	response->lid = context.na.lid;
 	response->type = RIPC_MSG_RESOLVE_REPLY;
-	response->resolver_qpn = mcast_service_id.na.qp->qp_num;
-	response->response_qpn = unicast_service_id.na.qp->qp_num;
+	response->na.resolver_qpn = mcast_service_id.na.qp->qp_num;
+	response->na.response_qpn = unicast_service_id.na.qp->qp_num;
 
 	resp_sge.addr = (uint64_t)response;
 	resp_sge.length = sizeof(struct resolver_msg);
@@ -448,9 +448,9 @@ void *start_responder(void *arg) {
 		DEBUG("Received message: from service: %u, for service: %u, from qpn: %u, from lid: %u, response to: %u",
 				msg->src_service_id,
 				msg->dest_service_id,
-				msg->service_qpn,
+				msg->na.service_qpn,
 				msg->lid,
-				msg->response_qpn
+				msg->na.response_qpn
 				);
 
 		post_new_recv_buf(mcast_service_id.na.qp);
@@ -486,7 +486,7 @@ void *start_responder(void *arg) {
 			//yay, it's for us!
 			DEBUG("Message is for me :)");
 
-			response->service_qpn =
+			response->na.service_qpn =
 					context.services[msg->dest_service_id]->na.qp->qp_num;
 
 			pthread_mutex_unlock(&services_mutex);
@@ -498,7 +498,7 @@ void *start_responder(void *arg) {
 			ah_attr.dlid = msg->lid;
 			ah_attr.port_num = context.na.port_num;
 			resp_wr.wr.ud.ah = ibv_create_ah(context.na.pd, &ah_attr);
-			resp_wr.wr.ud.remote_qpn = msg->response_qpn;
+			resp_wr.wr.ud.remote_qpn = msg->na.response_qpn;
 
 			ret = ibv_post_send(unicast_service_id.na.qp, &resp_wr, &bad_send_wr);
 			if (ret) {
@@ -523,8 +523,8 @@ void *start_responder(void *arg) {
 
 		assert(context.remotes[msg->src_service_id]);
 
-		if ((context.remotes[msg->src_service_id]->qp_num != msg->service_qpn) ||
-				(context.remotes[msg->src_service_id]->resolver_qp != msg->resolver_qpn)) {
+		if ((context.remotes[msg->src_service_id]->qp_num != msg->na.service_qpn) ||
+				(context.remotes[msg->src_service_id]->resolver_qp != msg->na.resolver_qpn)) {
 
 			if (context.remotes[msg->src_service_id]->na.ah) {
 				ibv_destroy_ah(context.remotes[msg->src_service_id]->na.ah);
@@ -536,8 +536,8 @@ void *start_responder(void *arg) {
 
 			context.remotes[msg->src_service_id]->na.ah =
 					ibv_create_ah(context.na.pd, &ah_attr);
-			context.remotes[msg->src_service_id]->qp_num = msg->service_qpn;
-			context.remotes[msg->src_service_id]->resolver_qp = msg->resolver_qpn;
+			context.remotes[msg->src_service_id]->qp_num = msg->na.service_qpn;
+			context.remotes[msg->src_service_id]->resolver_qp = msg->na.resolver_qpn;
 			context.remotes[msg->src_service_id]->state = RIPC_RDMA_DISCONNECTED;
 
 			if (context.remotes[msg->src_service_id]->na.rdma_qp) {
@@ -633,10 +633,10 @@ void resolve(uint16_t src, uint16_t dest) {
 	req_msg->src_service_id = src;
 	req_msg->lid = context.na.lid;
 	pthread_mutex_lock(&services_mutex);
-	req_msg->service_qpn = context.services[src]->na.qp->qp_num;
+	req_msg->na.service_qpn = context.services[src]->na.qp->qp_num;
 	pthread_mutex_unlock(&services_mutex);
-	req_msg->response_qpn = unicast_service_id.na.qp->qp_num;
-	req_msg->resolver_qpn = mcast_service_id.na.qp->qp_num;
+	req_msg->na.response_qpn = unicast_service_id.na.qp->qp_num;
+	req_msg->na.resolver_qpn = mcast_service_id.na.qp->qp_num;
 
 	sge.addr = (uint64_t)req_msg;
 	sge.length = sizeof(struct resolver_msg);
@@ -682,9 +682,9 @@ retry:
 	DEBUG("Multicast message contents: from service: %u, for service: %u, from qpn: %u, from lid: %u, response to: %u",
 			req_msg->src_service_id,
 			req_msg->dest_service_id,
-			req_msg->service_qpn,
+			req_msg->na.service_qpn,
 			req_msg->lid,
-			req_msg->response_qpn
+			req_msg->na.response_qpn
 			);
 
 	DEBUG("Successfully sent multicast request, now waiting for reply on qp %u",
@@ -713,9 +713,9 @@ keep_waiting:
 	DEBUG("Received message: from service: %u, for service: %u, from qpn: %u, from lid: %u, response to: %u",
 			msg->src_service_id,
 			msg->dest_service_id,
-			msg->service_qpn,
+			msg->na.service_qpn,
 			msg->lid,
-			msg->response_qpn
+			msg->na.response_qpn
 			);
 
 	//assert(msg->dest_service_id == dest);
@@ -742,8 +742,8 @@ keep_waiting:
 		context.remotes[dest]->state = RIPC_RDMA_DISCONNECTED;
 	}
 	context.remotes[dest]->na.ah = tmp_ah;
-	context.remotes[dest]->qp_num = msg->service_qpn;
-	context.remotes[dest]->resolver_qp = msg->resolver_qpn;
+	context.remotes[dest]->qp_num = msg->na.service_qpn;
+	context.remotes[dest]->resolver_qp = msg->na.resolver_qpn;
 
 	pthread_mutex_unlock(&remotes_mutex);
 

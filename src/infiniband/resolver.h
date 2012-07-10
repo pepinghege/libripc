@@ -1,5 +1,6 @@
 /*  Copyright 2011, 2012 Jens Kehne
  *  Copyright 2012 Jan Stoess, Karlsruhe Institute of Technology
+ *  Copyright 2012 Felix Pepinghege
  *
  *  LibRIPC is free software: you can redistribute it and/or modify it under
  *  the terms of the GNU Lesser General Public License as published by the
@@ -14,23 +15,17 @@
  *  You should have received a copy of the GNU Lesser General Public License
  *  along with libRIPC.  If not, see <http://www.gnu.org/licenses/>.
  */
-#ifndef RESOLVER_H_
-#define RESOLVER_H_
+#ifndef RESOURCES_H_
+#include "../resolver.h"
+#endif
 
-#include "config.h"
-#include "common.h"
+#ifndef __INFINIBAND__RESOLVER_H__
+#define __INFINIBAND__RESOLVER_H__
 
-struct resolver_msg {
-	enum msg_type type;
-	uint16_t dest_service_id;
-	uint16_t src_service_id;
-	uint16_t lid;
-	struct netarch_resolver_msg na;
+struct netarch_resolver_msg {
+	uint32_t service_qpn;
+	uint32_t response_qpn;
+	uint32_t resolver_qpn;
 };
 
-extern pthread_mutex_t resolver_mutex;
-
-void resolver_init(void);
-void resolve(uint16_t src, uint16_t dest);
-
-#endif /* RESOLVER_H_ */
+#endif /* !__INFINIBAND__RESOLVER_H__ */
