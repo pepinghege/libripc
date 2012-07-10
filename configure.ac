@@ -44,6 +44,7 @@ AC_ARG_WITH(netarch,
           infiniband) NETARCH=infiniband ;;
           bgp) NETARCH=bgp ;;
           local) NETARCH=local ;;
+          iwarp) NETARCH=iwarp ;;
           *) AC_MSG_ERROR(bad value $withval for --enable-netarch) ;; 
        esac
     ]
@@ -80,6 +81,38 @@ case $NETARCH in
   local)
         AC_DEFINE([NETARCH_LOCAL], [1], [Enable local network (UNIX pipe)])
         ;;      
+  iwarp)
+        AC_DEFINE([NETARCH_IWARP], [1], [Enable iWARP architecture])
+        AC_CHECK_LIB([rdmacm],[rdma_get_devices],[],[
+                echo "Error: Librdmacm not found!"
+                exit -1
+        ])
+
+        AC_CHECK_LIB([ibverbs],[ibv_get_device_list],[],[
+                echo "Error: Libibverbs not found!"
+                exit -1
+        ])
+
+        AC_CHECK_LIB([siw],[siw_query_device],[],[
+                echo "Error: Libsiw not found!"
+                exit -1
+        ])
+
+	AC_CHECK_HEADER([infiniband/verbs.h],[],[
+		echo "Error: Libibverbs development headers not found!"
+		exit -1
+	])
+
+	AC_CHECK_HEADER([rdma/rdma_cma.h],[],[
+		echo "Error: Librdmacm development headers not found!"
+		exit -1
+	])
+
+	AC_CHECK_HEADER([softiwarp/siw.h],[],[
+		echo "Error: Libsiw development headers not found!"
+		exit -1
+	])
+        ;;
   *)
 	AC_MSG_ERROR([Unknown network architecture: $NETARCH.
 	Please specify network architecture using --with-netarch=NETARCH])
@@ -95,6 +128,7 @@ AC_CHECK_LIB([pthread],[pthread_create],[],[
 AM_CONDITIONAL([NETARCH_INFINIBAND], [ test $NETARCH = infiniband ])
 AM_CONDITIONAL([NETARCH_BGP], [ test $NETARCH = bgp ])
 AM_CONDITIONAL([NETARCH_LOCAL], [ test $NETARCH = local ])
+AM_CONDITIONAL([NETARCH_IWARP], [ test $NETARCH = iwarp ])
 
 AC_HEADER_STDC
 AC_HEADER_STDBOOL
