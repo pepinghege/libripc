@@ -29,6 +29,9 @@
 #ifdef NETARCH_LOCAL
 #include <local/resources.h>
 #endif 
+#ifdef NETARCH_IWARP
+#include <iwarp/resources.h>
+#endif 
 
 struct rdma_connect_msg {
        enum msg_type type;
