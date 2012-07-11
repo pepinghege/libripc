@@ -17,9 +17,6 @@
 #ifndef RESOLVER_H_
 #define RESOLVER_H_
 
-#include "config.h"
-#include "common.h"
-
 #ifdef NETARCH_INFINIBAND
 #include <infiniband/resolver.h>
 #endif
@@ -32,6 +29,9 @@
 #ifdef NETARCH_IWARP
 #include <iwarp/resolver.h>
 #endif 
+
+#include "config.h"
+#include "common.h"
 
 struct resolver_msg {
 	enum msg_type type;
