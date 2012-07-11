@@ -44,8 +44,10 @@ struct netarch_remote_context {
 
 struct netarch_library_context {
 	in_addr_t ip_addr;
+	in_addr_t bcast_ip_addr;
 	uint16_t conn_listen_port;
 	struct rdma_event_channel *echannel;
+	uint16_t lid;
 	struct rdma_cm_id *listen_cm_id;
 	struct ibv_pd *pd;
 };
