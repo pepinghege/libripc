@@ -18,14 +18,14 @@
 #include "../resolver.h"
 #endif
 
-struct netarch_resolve_msg {
-	inaddr_t ip_addr;	//IP of the sender
+#ifndef __IWARP__RESOLVER_H__
+#define __IWARP__RESOLVER_H__
+
+struct netarch_resolver_msg {
+	in_addr_t ip_addr;	//IP of the sender
 	uint16_t conn_port;	//Port on which the connection-thread is listening
 	//The following member is optional except for resolve requests.
 	uint16_t answer_port;	//Port for resolve-answer
 };
-
-#ifndef __IWARP__RESOLVER_H__
-#define __IWARP__RESOLVER_H__
 
 #endif /* !__IWARP__RESOLVER_H__ */
