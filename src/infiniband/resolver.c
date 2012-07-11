@@ -38,7 +38,7 @@ void handle_rdma_connect(struct rdma_connect_msg *msg) {
 	DEBUG("Received rdma connect message: from %u, for %u, remote lid: %u, remote psn: %u, remote qpn: %u",
 			msg->src_service_id,
 			msg->dest_service_id,
-			msg->lid,
+			msg->na.lid,
 			msg->psn,
 			msg->qpn);
 
@@ -173,7 +173,7 @@ void handle_rdma_connect(struct rdma_connect_msg *msg) {
 	attr.max_dest_rd_atomic = 1;
 	attr.min_rnr_timer = 12;
 	attr.ah_attr.is_global = 0;
-	attr.ah_attr.dlid = msg->lid;
+	attr.ah_attr.dlid = msg->na.lid;
 	attr.ah_attr.sl = 0;
 	attr.ah_attr.src_path_bits = 0;
 	attr.ah_attr.port_num = context.na.port_num;
@@ -238,7 +238,7 @@ reply:
 		psn = attr.sq_psn;
 	}
 
-	msg->lid = context.na.lid;
+	msg->na.lid = context.na.lid;
 	msg->qpn = remote->na.rdma_qp->qp_num;
 	msg->psn = psn;
 	//msg->na.response_qpn = rdma_qp->qp_num;
@@ -279,7 +279,7 @@ reply:
 		DEBUG("Sent rdma connect response to remote %u (qp %u), containing lid %u, qpn %u and psn %u",
 				msg->src_service_id,
 				msg->na.response_qpn,
-				msg->lid,
+				msg->na.lid,
 				msg->qpn,
 				msg->psn);
 	}
@@ -411,7 +411,7 @@ void *start_responder(void *arg) {
 	//prepare a response as far as possible
 	resp_mr = ripc_alloc_recv_buf(sizeof(struct resolver_msg)).na;
 	response = (struct resolver_msg *)resp_mr->addr;
-	response->lid = context.na.lid;
+	response->na.lid = context.na.lid;
 	response->type = RIPC_MSG_RESOLVE_REPLY;
 	response->na.resolver_qpn = mcast_service_id.na.qp->qp_num;
 	response->na.response_qpn = unicast_service_id.na.qp->qp_num;
@@ -449,7 +449,7 @@ void *start_responder(void *arg) {
 				msg->src_service_id,
 				msg->dest_service_id,
 				msg->na.service_qpn,
-				msg->lid,
+				msg->na.lid,
 				msg->na.response_qpn
 				);
 
@@ -495,7 +495,7 @@ void *start_responder(void *arg) {
 			response->dest_service_id = msg->dest_service_id;
 			response->src_service_id = msg->src_service_id;
 
-			ah_attr.dlid = msg->lid;
+			ah_attr.dlid = msg->na.lid;
 			ah_attr.port_num = context.na.port_num;
 			resp_wr.wr.ud.ah = ibv_create_ah(context.na.pd, &ah_attr);
 			resp_wr.wr.ud.remote_qpn = msg->na.response_qpn;
@@ -531,7 +531,7 @@ void *start_responder(void *arg) {
 				context.remotes[msg->src_service_id]->na.ah = NULL;
 			}
 
-			ah_attr.dlid = msg->lid;
+			ah_attr.dlid = msg->na.lid;
 			ah_attr.port_num = context.na.port_num;
 
 			context.remotes[msg->src_service_id]->na.ah =
@@ -631,7 +631,7 @@ void resolve(uint16_t src, uint16_t dest) {
 	req_msg->type = RIPC_MSG_RESOLVE_REQ;
 	req_msg->dest_service_id = dest;
 	req_msg->src_service_id = src;
-	req_msg->lid = context.na.lid;
+	req_msg->na.lid = context.na.lid;
 	pthread_mutex_lock(&services_mutex);
 	req_msg->na.service_qpn = context.services[src]->na.qp->qp_num;
 	pthread_mutex_unlock(&services_mutex);
@@ -683,7 +683,7 @@ retry:
 			req_msg->src_service_id,
 			req_msg->dest_service_id,
 			req_msg->na.service_qpn,
-			req_msg->lid,
+			req_msg->na.lid,
 			req_msg->na.response_qpn
 			);
 
@@ -714,7 +714,7 @@ keep_waiting:
 			msg->src_service_id,
 			msg->dest_service_id,
 			msg->na.service_qpn,
-			msg->lid,
+			msg->na.lid,
 			msg->na.response_qpn
 			);
 
@@ -730,7 +730,7 @@ keep_waiting:
 	ripc_buf_free(req_msg);
 
 	 //got the info we wanted, now feed it to the cache
-	ah_attr.dlid = msg->lid;
+	ah_attr.dlid = msg->na.lid;
 	ah_attr.port_num = context.na.port_num;
 	tmp_ah = ibv_create_ah(context.na.pd, &ah_attr);
 

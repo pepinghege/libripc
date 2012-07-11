@@ -37,7 +37,6 @@ struct resolver_msg {
 	enum msg_type type;
 	uint16_t dest_service_id;
 	uint16_t src_service_id;
-	uint16_t lid;
 	struct netarch_resolver_msg na;
 };
 
