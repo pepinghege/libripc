@@ -20,13 +20,34 @@
 
 #ifndef __IWARP_COMMON_H__
 #define __IWARP_COMMON_H__
+
+#include <infiniband/verbs.h>
+#include <rdma/rdma_cma.h>
+#include <netinet/in.h>
+
 struct netarch_service_id {
+	bool no_cchannel;
+	struct ibv_cq *send_cq;
+	struct ibv_cq *recv_cq;
+	struct ibv_comp_channel *cchannel;
 };
 
 struct netarch_remote_context {
+	struct rdma_cm_id *rdma_cm_id;
+	struct ibv_qp *rdma_qp;
+	struct ibv_cq *rdma_send_cq;
+	struct ibv_cq *rdma_recv_cq;
+	struct ibv_comp_channel *rdma_cchannel;
+	in_addr_t ip_addr;
+	uint16_t rdma_listen_port;
 };
 
 struct netarch_library_context {
+	in_addr_t ip_addr;
+	uint16_t conn_listen_port;
+	struct rdma_event_channel *echannel;
+	struct rdma_cm_id *listen_cm_id;
+	struct ibv_pd *pd;
 };
 
 #endif /* !__IWARP_COMMON_H__ */
