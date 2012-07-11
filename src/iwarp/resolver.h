@@ -21,11 +21,16 @@
 #ifndef __IWARP__RESOLVER_H__
 #define __IWARP__RESOLVER_H__
 
+//TODO:	What do we do if two processes start libRIPC on the same machine (i.e. with the same IP)
+#define	RESOLVER_BCAST_PORT	15510
+
 struct netarch_resolver_msg {
 	in_addr_t ip_addr;	//IP of the sender
 	uint16_t conn_port;	//Port on which the connection-thread is listening
 	//The following member is optional except for resolve requests.
 	uint16_t answer_port;	//Port for resolve-answer
 };
+
+void *start_responder(void *arg);
 
 #endif /* !__IWARP__RESOLVER_H__ */
