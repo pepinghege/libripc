@@ -18,6 +18,12 @@
 /* Define to 1 if you have the `pthread' library (-lpthread). */
 #undef HAVE_LIBPTHREAD
 
+/* Define to 1 if you have the `rdmacm' library (-lrdmacm). */
+#undef HAVE_LIBRDMACM
+
+/* Define to 1 if you have the `siw' library (-lsiw). */
+#undef HAVE_LIBSIW
+
 /* Define to 1 if your system has a GNU libc compatible `malloc' function, and
    to 0 otherwise. */
 #undef HAVE_MALLOC
@@ -67,6 +73,9 @@
 
 /* Enable InfiniBand network architecture */
 #undef NETARCH_INFINIBAND
+
+/* Enable iWARP architecture */
+#undef NETARCH_IWARP
 
 /* Enable local network (UNIX pipe) */
 #undef NETARCH_LOCAL
