@@ -38,9 +38,9 @@ void handle_rdma_connect(struct rdma_connect_msg *msg) {
 	DEBUG("Received rdma connect message: from %u, for %u, remote lid: %u, remote psn: %u, remote qpn: %u",
 			msg->src_service_id,
 			msg->dest_service_id,
-			msg->na.lid,
-			msg->psn,
-			msg->qpn);
+			msg->lid,
+			msg->na.psn,
+			msg->na.qpn);
 
 	uint32_t psn = 0;
 	struct ibv_qp_attr attr;
@@ -168,12 +168,12 @@ void handle_rdma_connect(struct rdma_connect_msg *msg) {
 
 	attr.qp_state = IBV_QPS_RTR;
 	attr.path_mtu = IBV_MTU_2048;
-	attr.dest_qp_num = msg->qpn;
-	attr.rq_psn = msg->psn;
+	attr.dest_qp_num = msg->na.qpn;
+	attr.rq_psn = msg->na.psn;
 	attr.max_dest_rd_atomic = 1;
 	attr.min_rnr_timer = 12;
 	attr.ah_attr.is_global = 0;
-	attr.ah_attr.dlid = msg->na.lid;
+	attr.ah_attr.dlid = msg->lid;
 	attr.ah_attr.sl = 0;
 	attr.ah_attr.src_path_bits = 0;
 	attr.ah_attr.port_num = context.na.port_num;
@@ -238,9 +238,9 @@ reply:
 		psn = attr.sq_psn;
 	}
 
-	msg->na.lid = context.na.lid;
-	msg->qpn = remote->na.rdma_qp->qp_num;
-	msg->psn = psn;
+	msg->lid = context.na.lid;
+	msg->na.qpn = remote->na.rdma_qp->qp_num;
+	msg->na.psn = psn;
 	//msg->na.response_qpn = rdma_qp->qp_num;
 	msg->type = RIPC_RDMA_CONN_REPLY;
 
@@ -261,7 +261,7 @@ reply:
 	wr.wr_id = 0xdeadbeef;
 	wr.wr.ud.ah = remote->na.ah;
 	wr.wr.ud.remote_qkey = 0xffff;
-	wr.wr.ud.remote_qpn = msg->response_qpn;
+	wr.wr.ud.remote_qpn = msg->na.response_qpn;
 
 	struct ibv_send_wr *bad_wr;
 
@@ -272,16 +272,16 @@ reply:
     	if (ret) {
     		ERROR("Failed to send connect response to remote %u (qp %u): %s",
 				msg->src_service_id,
-				msg->response_qpn,
+				msg->na.response_qpn,
 				strerror(ret));
 		goto error;
 	} else {
 		DEBUG("Sent rdma connect response to remote %u (qp %u), containing lid %u, qpn %u and psn %u",
 				msg->src_service_id,
 				msg->na.response_qpn,
-				msg->na.lid,
-				msg->qpn,
-				msg->psn);
+				msg->lid,
+				msg->na.qpn,
+				msg->na.psn);
 	}
 
 	struct ibv_wc wc;
