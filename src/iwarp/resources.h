@@ -21,4 +21,11 @@
 #ifndef __IWARP__RESOURCES_H__
 #define __IWARP__RESOURCES_H__
 
+struct netarch_rdma_connect_msg {
+}
+
+void conn_mgmt_init(void);
+
+void *start_conn_manager(void *arg);
+
 #endif /* !__IWARP__RESOURCES_H__ */
