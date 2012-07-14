@@ -28,4 +28,14 @@ void conn_mgmt_init(void);
 
 void *start_conn_manager(void *arg);
 
+void create_rdma_connection(uint16_t src, uint16_t dest);
+
+/*
+ * Mutex remotes_mutex must be hold when calling these functions!
+ */
+void strip_remote_context(struct remote_context *remote);
+void prepare_qp_init_attr(ibv_qp_init_attr *init_attr, struct remote_context *remote);
+
+void prepare_conn_param(rdma_conn_param *conn_param, void *payload, size_t len);
+
 #endif /* !__IWARP__RESOURCES_H__ */
