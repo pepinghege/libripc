@@ -35,6 +35,9 @@ void conn_mgmt_init() {
 	pthread_mutex_lock(&rdma_connect_mutex); //Unlocked in start_conn_manager
 
 	context.na.echannel	= rdma_create_event_channel();
+	if (!context.na.echannel) {
+		panic("Could not create event channel.");
+	}
 	if (rdma_create_id(context.na.echannel, &context.na.listen_cm_id, NULL, RDMA_PS_TCP) < 0) {
 		int err = errno;
 		panic("Could not create cm-id for conn-mgmt-thread.");
@@ -380,6 +383,7 @@ void create_rdma_connection(uint16_t src, uint16_t dest) {
 	socklen_t addr_len		= sizeof(local_addr);
 	struct rdma_cm_event *event	= NULL;
 	struct rdma_cm_id *conn_id;
+	struct rdma_event_channel *echannel;
 	struct ibv_qp_init_attr qp_init_attr;
 	struct rdma_conn_param conn_param;
 	struct rdma_connect_msg msg, *resp;
@@ -413,10 +417,23 @@ void create_rdma_connection(uint16_t src, uint16_t dest) {
 	conn_id_mutex = &remote->na.cm_id_mutex;
 	pthread_mutex_unlock(&remotes_mutex);
 
+	echannel = rdma_create_event_channel();
+	if (!echannel) {
+		DEBUG("Could not create event channel for connection establishment.");
+		pthread_mutex_lock(&remotes_mutex);
+		remote->state == RIPC_RDMA_DISCONNECTED;
+		pthread_mutex_unlock(&remotes_mutex);
+		return;
+	}
+
 	pthread_mutex_lock(conn_id_mutex);
-	if (rdma_create_id(context.na.echannel, &(remote->na.rdma_cm_id), context.na.pd, RDMA_PS_TCP) < 0) {
+	if (rdma_create_id(echannel, &(remote->na.rdma_cm_id), context.na.pd, RDMA_PS_TCP) < 0) {
 		DEBUG("Could not create cm-id.");
 		pthread_mutex_unlock(conn_id_mutex);
+		pthread_mutex_lock(&remotes_mutex);
+		remote->state == RIPC_RDMA_DISCONNECTED;
+		pthread_mutex_unlock(&remotes_mutex);
+		rdma_destroy_event_channel(echannel);
 		return;
 	}
 	remote->na.rdma_cm_id->context	= remote;
@@ -443,6 +460,7 @@ resolve_addr:
 		pthread_mutex_lock(&remotes_mutex);
 		strip_remote_context(remote);
 		phtread_mutex_unlock(&remotes_mutex);
+		rdma_destroy_event_channel(echannel);
 		return;
 	}
 
@@ -468,6 +486,7 @@ resolve_addr:
 			pthread_mutex_lock(&remotes_mutex);
 			strip_remote_context(remote);
 			pthread_mutex_unlock(&remotes_mutex);
+			rdma_destroy_event_channel(echannel);
 			return;
 		} else if (event->event == RDMA_CM_EVENT_ADDR_ERROR) {
 			DEBUG("Could not resolve address in %hu. try.", ++retries);
@@ -479,6 +498,7 @@ resolve_addr:
 			pthread_mutex_lock(&remotes_mutex);
 			strip_remote_context(remote);
 			pthread_mutex_unlock(&remotes_mutex);
+			rdma_destroy_event_channel(echannel);
 			return;
 		} else
 			DEBUG(	"Received unexpected event (%s instead of RDMA_CM_EVENT_ADDR_RESOLVED).",
@@ -502,6 +522,7 @@ resolve_addr:
 		rdma_ack_cm_event(event);
 		strip_remote_context(remote);
 		pthread_mutex_unlock(&remotes_mutex);
+		rdma_destroy_event_channel(echannel);
 		return;
 	}
 
@@ -511,6 +532,7 @@ resolve_addr:
 		rdma_ack_cm_event(event);
 		strip_remote_context(remote);
 		pthread_mutex_unlock(&remotes_mutex);
+		rdma_destroy_event_channel(echannel);
 		return;
 	}
 
@@ -520,6 +542,7 @@ resolve_addr:
 		rdma_ack_cm_event(event);
 		strip_remote_context(remote);
 		pthread_mutex_unlock(&remotes_mutex);
+		rdma_destroy_event_channel(echannel);
 		return;
 	}
 
@@ -529,6 +552,7 @@ resolve_addr:
 		rdma_ack_cm_event(event);
 		strip_remote_context(remote);
 		pthread_mutex_unlock(&remotes_mutex);
+		rdma_destroy_event_channel(echannel);
 		return;
 	}
 	remote->na.rdma_qp		= conn_id->qp;
@@ -546,6 +570,7 @@ resolve_route:
 		pthread_mutex_lock(&remotes_mutex);
 		strip_remote_context(remote);
 		pthread_mutex_unlock(&remotes_mutex);
+		rdma_destroy_event_channel(echannel);
 		return;
 	}
 	
@@ -564,6 +589,7 @@ resolve_route:
 			pthread_mutex_lock(&remotes_mutex);
 			strip_remote_context(remote);
 			pthread_mutex_unlock(&remotes_mutex);
+			rdma_destroy_event_channel(echannel);
 			return;
 		} else if (event->event == RDMA_CM_EVENT_ROUTE_ERROR) {
 			DEBUG("Could not resolve address in %hu. try.", ++retries);
@@ -575,6 +601,7 @@ resolve_route:
 			pthread_mutex_lock(&remotes_mutex);
 			strip_remote_context(remote);
 			pthread_mutex_unlock(&remotes_mutex);
+			rdma_destroy_event_channel(echannel);
 			return;
 		} else
 			DEBUG(	"Received unexpected event (%s instead of RDMA_CM_EVENT_ROUTE_RESOLVED).",
@@ -610,6 +637,7 @@ connect:
 		pthread_mutex_lock(&remotes_mutex);
 		strip_remote_context(remote);
 		pthread_mutex_unlock(&remotes_mutex);
+		rdma_destroy_event_channel(echannel);
 		return;
 	}
 	
@@ -628,6 +656,7 @@ connect:
 			pthread_mutex_lock(&remotes_mutex);
 			strip_remote_context(remote);
 			pthread_mutex_unlock(&remotes_mutex);
+			rdma_destroy_event_channel(echannel);
 			return;
 		} else if (event->event == RDMA_CM_EVENT_CONNECT_ERROR) {
 			DEBUG("Could not resolve address in %hu. try.", ++retries);
@@ -639,6 +668,7 @@ connect:
 			pthread_mutex_lock(&remotes_mutex);
 			strip_remote_context(remote);
 			pthread_mutex_unlock(&remotes_mutex);
+			rdma_destroy_event_channel(echannel);
 			return;
 		} else if (event->event == RDMA_CM_EVENT_REJECTED) {
 			DEBUG("Remote side rejected connection.");
@@ -647,6 +677,7 @@ connect:
 			pthread_mutex_lock(&remotes_mutex);
 			strip_remote_context(remote);
 			pthread_mutex_unlock(&remotes_mutex);
+			rdma_destroy_event_channel(echannel);
 			return;
 		} else
 			DEBUG(	"Received unexpected event (%s instead of RDMA_CM_EVENT_ROUTE_RESOLVED).",
@@ -679,6 +710,7 @@ connect:
 		pthread_mutex_lock(&remotes_mutex);
 		strip_remote_context(remote);
 		pthread_mutex_unlock(&remotes_mutex);
+		rdma_destroy_event_channel(echannel);
 		return;
 	}
 	if (resp->dest_service_id != dest || resp->src_service_id != src) {
@@ -688,12 +720,21 @@ connect:
 		pthread_mutex_lock(&remotes_mutex);
 		strip_remote_context(remote);
 		pthread_mutex_unlock(&remotes_mutex);
+		rdma_destroy_event_channel(echannel);
 		return;
 	}
 
 	pthread_mutex_lock(&remotes_mutex);
 	remote->state = RIPC_RDMA_ESTABLISHED;
 	pthread_mutex_unlock(&remotes_mutex);
+
+	pthread_mutex_lock(conn_id_mutex);
+	pthread_mutex_lock(&rdma_connect_mutex);
+	rdma_migrate_id(conn_id, context.na.echannel);
+	pthread_mutex_unlock(&rdma_connect_mutex);
+	pthread_mutex_unlock(conn_id_mutex);
+
+	rdma_destroy_event_channel(echannel);
 }
 
 struct remote_context *alloc_remote_context(void) {
