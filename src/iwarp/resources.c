@@ -135,6 +135,16 @@ void *start_conn_manager(void *arg) {
 			}
 			if (context.remotes[msg->src_service_id]
 				&& (context.remotes[msg->src_service_id]->state == RIPC_RDMA_ESTABLISHED)) {
+				/*
+				 * This should not happen and may indicate that someone does nasty stuff here.
+				 *
+				 * A valid situation in which a remote we already are connected with creates a
+				 * new connection is that he was moved to another machine. 
+				 * But in this case, the rdma-connection would not be valid anymore (there lies
+				 * a TCP-connection below us, which will probably not accept the migration
+				 * (TODO: or will it?). That would lead in a new resolving, and when that happens
+				 * any established connection would have been stripped!
+				 */
 				pthread_mutex_unlock(&remotes_mutex);
 				DEBUG("Received rdma connect request from a remote we are already connected with!");
 				if (rdma_reject(conn_id, NULL, 0) < 0) {
@@ -205,6 +215,7 @@ void *start_conn_manager(void *arg) {
 			}
 			remote->na.rdma_qp		= conn_id->qp;
 
+			pthread_mutex_lock(&(remote->na.cm_id_mutex));
 			remote->na.rdma_cm_id		= conn_id;
 			conn_id->context		= remote; //This way we generate a cm_id-to-remote_context-mapping.
 			pthread_mutex_unlock(&remotes_mutex);
@@ -213,12 +224,12 @@ void *start_conn_manager(void *arg) {
 			memcpy(&resp, msg, sizeof(resp));
 			resp.type		= RIPC_RDMA_CONN_REPLY;
 			prepare_conn_param(&conn_param, &resp, sizeof(resp));
-			pthread_mutex_lock(&(remote->na.cm_id_mutex));
 			if (rdma_accept(conn_id, &conn_param) < 0) {
 				int err = errno;
 				DEBUG("Could not send rdma connection accept. Code: %d (%s).", err, strerror(err));
 				rdma_ack_cm_event(event);
 				pthread_mutex_lock(&remotes_mutex);
+				pthread_mutex_unlock(&(remote->na.cm_id_mutex));
 				strip_remote_context(remote);
 				pthread_mutex_unlock(&remotes_mutex);
 				continue;
