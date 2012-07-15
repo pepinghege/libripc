@@ -15,10 +15,7 @@
  *  along with libRIPC.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <stdlib.h>
-<<<<<<< HEAD
 #include <string.h>
-=======
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 #include <errno.h>
 #include <rdma/rdma_cma.h>
 #include <netinet/in.h>
@@ -56,11 +53,7 @@ void conn_mgmt_init() {
 	 */
 	if (rdma_bind_addr(context.na.listen_cm_id, (struct sockaddr*) &listen_addr) < 0) {
 		int err = errno;
-<<<<<<< HEAD
 		panic("Could not bind to given ip:port.");
-=======
-		panic("Could not bind to given ip:port. Code %d (%s).", err, strerror(err));
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 	}
 	context.na.conn_listen_port	= rdma_get_src_port(context.na.listen_cm_id);
 
@@ -93,11 +86,7 @@ void *start_conn_manager(void *arg) {
 		}
 
 		switch (event->event) {
-<<<<<<< HEAD
 		case (RDMA_CM_EVENT_CONNECT_REQUEST): {
-=======
-		case (RDMA_CM_EVENT_CONNECT_REQUEST):
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 			struct rdma_connect_msg *msg, resp;
 			struct rdma_cm_id *conn_id;
 			struct remote_context *remote;
@@ -131,49 +120,29 @@ void *start_conn_manager(void *arg) {
 			pthread_mutex_unlock(&services_mutex);
 			pthread_mutex_lock(&remotes_mutex);
 			if (context.remotes[msg->src_service_id]
-<<<<<<< HEAD
 				&& (context.remotes[msg->src_service_id]->state == RIPC_RDMA_CONNECTING)) {
-=======
-				&& (context.remotes[msg->src_service_id].state == RIPC_RDMA_CONNECTING)) {
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 				pthread_mutex_unlock(&remotes_mutex);
 				DEBUG("Received rdma connect request while another connection establishment is already in progress");
 				if (rdma_reject(conn_id, NULL, 0) < 0) {
 					int err = errno;
 					DEBUG(	"Error rejecting an invalid connection request. Code: %d (%s)", 
-<<<<<<< HEAD
 						err, strerror(err));
-=======
-						err, strerror(err);
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 				}
 				break;
 			}
 			if (context.remotes[msg->src_service_id]
-<<<<<<< HEAD
 				&& (context.remotes[msg->src_service_id]->state == RIPC_RDMA_ESTABLISHED)) {
-=======
-				&& (context.remotes[msg->src_service_id].state == RIPC_RDMA_ESTABLISHED)) {
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 				pthread_mutex_unlock(&remotes_mutex);
 				DEBUG("Received rdma connect request from a remote we are already connected with!");
 				if (rdma_reject(conn_id, NULL, 0) < 0) {
 					int err = errno;
 					DEBUG(	"Error rejecting an invalid connection request. Code: %d (%s)", 
-<<<<<<< HEAD
 						err, strerror(err));
-=======
-						err, strerror(err);
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 				}
 				break;
 			}
 			if (context.remotes[msg->src_service_id]
-<<<<<<< HEAD
 				&& (context.remotes[msg->src_service_id]->state != RIPC_RDMA_DISCONNECTED)) {
-=======
-				&& (context.remotes[msg->src_service_id].state != RIPC_RDMA_DISCONNECTED)) {
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 				/*
 				 * We should not be here! Either we have the case of a remote context with an invalid
 				 * state, or the context of the given conn_id pointed to some random location, which we
@@ -189,28 +158,15 @@ void *start_conn_manager(void *arg) {
 				/*
 				 * We know nothing yet of the remote service
 				 * TODO:This case is pretty unlikely, if not impossible: Every remote instance which
-<<<<<<< HEAD
 				 *	sends a connection request has to have resolved us. During this resolving
 				 *	process we would have created the remote context. So maybe just delete this?
 				 */
 				context.remotes[msg->src_service_id] = alloc_remote_context();
-=======
-				 *	sends a connection request has to have resolved us. While this resolving
-				 *	process we would have created the remote context. So maybe just delete this?
-				 */
-				context.remotes[msg->src_service_id]
-					= (struct remote_context*) malloc(sizeof(struct remote_context));
-				memset(context.remotes[msg->src_service_id], 0, sizeof(struct remote_context));
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 			}
 			remote = context.remotes[msg->src_service_id];
 			remote->state			= RIPC_RDMA_CONNECTING;
 			remote->na.rdma_cchannel	= ibv_create_comp_channel(conn_id->verbs);
-<<<<<<< HEAD
 			if (!remote->na.rdma_cchannel) {
-=======
-			if (!remote->rdma_cchannel) {
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 				DEBUG("Could not create completion channel for remote-id %hu.", msg->src_service_id);
 				rdma_ack_cm_event(event);
 				strip_remote_context(remote);
@@ -218,13 +174,8 @@ void *start_conn_manager(void *arg) {
 				continue;
 			}
 
-<<<<<<< HEAD
 			remote->na.rdma_send_cq		= ibv_create_cq(conn_id->verbs, 50, NULL, NULL, 0);
 			if (!remote->na.rdma_send_cq) {
-=======
-			remote->na.rdma_send_cq		= ibv_create_cq(conn_id->verbs, 50, NULL, 0);
-			if (!remote->rdma_send_cq) {
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 				DEBUG("Could not create sending completion queue for remote-id %hu.", msg->src_service_id);
 				rdma_ack_cm_event(event);
 				strip_remote_context(remote);
@@ -232,13 +183,8 @@ void *start_conn_manager(void *arg) {
 				continue;
 			}
 
-<<<<<<< HEAD
 			remote->na.rdma_recv_cq		= ibv_create_cq(conn_id->verbs, 50, NULL, remote->na.rdma_cchannel, 0);
 			if (!remote->na.rdma_recv_cq) {
-=======
-			remote->na.rdma_recv_cq		= ibv_create_cq(conn_id->verbs, 50, cc, 0);
-			if (!remote->rdma_recv_cq) {
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 				DEBUG("Could not create receiving completion queue for remote-id %hu.", msg->src_service_id);
 				rdma_ack_cm_event(event);
 				strip_remote_context(remote);
@@ -247,12 +193,7 @@ void *start_conn_manager(void *arg) {
 			}
 
 			prepare_qp_init_attr(&qp_init_attr, remote);
-<<<<<<< HEAD
 			if (rdma_create_qp(conn_id, context.na.pd, &qp_init_attr) < 0) {
-=======
-			remote->na.rdma_qp		= ibv_create_qp(conn_id, context.na.pd, &qp_init_attr);
-			if (!remote->rdma_qp) {
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 				DEBUG("Could not create queue pair for remote-id %hu.", msg->src_service_id);
 				rdma_ack_cm_event(event);
 				strip_remote_context(remote);
@@ -263,7 +204,6 @@ void *start_conn_manager(void *arg) {
 
 			remote->na.rdma_cm_id		= conn_id;
 			conn_id->context		= remote; //This way we generate a cm_id-to-remote_context-mapping.
-<<<<<<< HEAD
 			pthread_mutex_unlock(&remotes_mutex);
 
 			//TODO:	I may want to send more private data (maybe buffers, etc)
@@ -321,62 +261,6 @@ void *start_conn_manager(void *arg) {
 
 			break;
 		}
-=======
-
-			//TODO:	I may want to send more private data (maybe buffers, etc)
-			memcpy(&resp, msg, sizeof(resp));
-			resp.type		= RIPC_MSG_CONN_REPLY;
-			prepare_conn_param(&conn_param, &resp, sizeof(resp));
-			if (rdma_accept(conn_id, &conn_param) < 0) {
-				int err = errno;
-				DEBUG("Could not send rdma connection accept. Code: %d (%s).", err, strerror(err));
-				rdma_ack_cm_event(event);
-				strip_remote_context(remote);
-				pthread_mutex_unlock(&remotes_mutex);
-				continue;
-			}
-
-			pthread_mutex_unlock(&remotes_mutex);
-			break;
-
-		case (RDMA_CM_EVENT_CONNECT_ERROR):
-			/*
-			 * This event is received when an error occurs during connection establishment. Hence it should only
-			 * occur wenn the state of the remote context is RIPC_RDMA_CONNECTING. If this is the case, we just
-			 * abort the connecting-process. Otherwise we ignore the event but post a debug-message.
-			 */
-			struct rdma_cm_id *conn_id	= event->id;
-			struct remote_context *remote	= conn_id->context;
-
-			if (!remote) {
-				DEBUG("Received a connecting error without a linked remote context.");
-				break;
-			}
-
-			pthread_mutex_lock(&remotes_mutex);
-			switch (remote->state) {
-			case RIPC_RDMA_DISCONNECTED:
-				DEBUG("Received a connecting error on a remote context which is disconnected.");
-				break;
-			case RIPC_RDMA_ESTABLISHED:
-				DEBUG("Received a connecting error on a remote context which is already connected.");
-				break;
-			case RIPC_RDMA_CONNECTING:
-				strip_remote_context(remote);
-				break;
-			default:
-				/*
-				 * We should not be here! Either we have the case of a remote context with an invalid
-				 * state, or the context of the given conn_id pointed to some random location, which we
-				 * were allowed to touch. 
-				 */
-				DEBUG("Received a connection error with invalid context-state.");
-			}
-			pthread_mutex_unlock(&remotes_mutex);
-
-			break;
-
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 		case (RDMA_CM_EVENT_DISCONNECTED):
 			/*
 			 * This event is received when a) we or b) our communication partner called rdma_disconnect
@@ -384,11 +268,7 @@ void *start_conn_manager(void *arg) {
 			 * As disconnection aren't handled in libRIPC we do not handle this event yet.
 			 */
 			break;
-<<<<<<< HEAD
 		case (RDMA_CM_EVENT_ESTABLISHED): {
-=======
-		case (RDMA_CM_EVENT_ESTABLISHED):
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 			/*
 			 * This event indicates that the connection establishment is complete.
 			 */
@@ -428,18 +308,13 @@ void *start_conn_manager(void *arg) {
 			break;
 		}
 
-<<<<<<< HEAD
 		rdma_ack_cm_event(event);
-=======
-		rdma_ack_cm_event(&event);
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 	}
 
 }
 
 void strip_remote_context(struct remote_context *remote) {
 	if (remote->na.rdma_qp) {
-<<<<<<< HEAD
 		pthread_mutex_lock(&(remote->na.cm_id_mutex));
 		rdma_destroy_qp(remote->na.rdma_cm_id);
 		remote->na.rdma_qp		= NULL;
@@ -455,21 +330,6 @@ void strip_remote_context(struct remote_context *remote) {
 	}
 	if (remote->na.rdma_cchannel) {
 		ibv_destroy_comp_channel(remote->na.rdma_cchannel);
-=======
-		rdma_destroy_qp(conn_id);
-		remote->na.rdma_qp		= NULL;
-	}
-	if (remote->na.rdma_recv_cq) {
-		ibv_destroy_cq(remote->rdma_recv_cq);
-		remote->na.rdma_recv_cq		= NULL;
-	}
-	if (remote->na.rdma_send_cq) {
-		ibv_destroy_cq(remote->rdma_send_cq);
-		remote->na.rdma_send_cq		= NULL;
-	}
-	if (remote->na.rdma_cchannel) {
-		ibv_destroy_comp_channel(remote->rdma_cchannel);
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 		remote->na.rdma_cchannel	= NULL;
 	}
 	if (remote->return_bufs) {
@@ -477,30 +337,18 @@ void strip_remote_context(struct remote_context *remote) {
 		remote->return_bufs		= NULL;
 	}
 	if (remote->na.rdma_cm_id) {
-<<<<<<< HEAD
 		pthread_mutex_lock(&(remote->na.cm_id_mutex));
 		rdma_destroy_id(remote->na.rdma_cm_id);
 		remote->na.rdma_cm_id		= NULL;
 		pthread_mutex_unlock(&(remote->na.cm_id_mutex));
-=======
-		rdma_destroy_id(remote->na.rdma_cm_id);
-		remote->na.rdma_cm_id		= NULL;
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 	}
 	remote->state			= RIPC_RDMA_DISCONNECTED;
 }
 
-<<<<<<< HEAD
 void prepare_qp_init_attr(struct ibv_qp_init_attr *init_attr, struct remote_context *remote) {
 	memset(init_attr, 0, sizeof(*init_attr));
 	init_attr->send_cq		= remote->na.rdma_send_cq;
 	init_attr->recv_cq		= remote->na.rdma_recv_cq;
-=======
-void prepare_qp_init_attr(ibv_qp_init_attr *init_attr, struct remote_context *remote) {
-	memset(init_attr, 0, sizeof(*init_attr));
-	init_attr->send_cq		= remote->rdma_send_cq;
-	init_attr->recv_cq		= remote->rdma_recv_cq;
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 	//TODO:	Think those numbers through
 	init_attr->cap.max_send_wr	= 1000;
 	init_attr->cap.max_recv_wr	= 1000;
@@ -511,11 +359,7 @@ void prepare_qp_init_attr(ibv_qp_init_attr *init_attr, struct remote_context *re
 	init_attr->sq_sig_all		= 0;
 }
 
-<<<<<<< HEAD
 void prepare_conn_param(struct rdma_conn_param *conn_param, void *payload, size_t len) {
-=======
-void prepare_conn_param(rdma_conn_param *conn_param, void *payload, size_t len) {
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 	memset(conn_param, 0, sizeof(*conn_param));
 	conn_param->private_data	= payload;
 	conn_param->private_data_len	= len;
@@ -531,21 +375,14 @@ void create_rdma_connection(uint16_t src, uint16_t dest) {
 	pthread_mutex_unlock(&services_mutex);
 
 	struct remote_context *remote;
-<<<<<<< HEAD
 	pthread_mutex_t *conn_id_mutex;
-=======
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 	struct sockaddr_in local_addr, remote_addr;
 	socklen_t addr_len		= sizeof(local_addr);
 	struct rdma_cm_event *event	= NULL;
 	struct rdma_cm_id *conn_id;
 	struct ibv_qp_init_attr qp_init_attr;
 	struct rdma_conn_param conn_param;
-<<<<<<< HEAD
 	struct rdma_connect_msg msg, *resp;
-=======
-	struct ripc_connect_msg msg, *resp;
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 	size_t retries;
 	size_t max_retries		= 2;
 
@@ -566,18 +403,13 @@ void create_rdma_connection(uint16_t src, uint16_t dest) {
 	}
 	remote	= context.remotes[dest];
 
-<<<<<<< HEAD
 	if (remote->state != RIPC_RDMA_DISCONNECTED) {
-=======
-	if (remote->state != RIPC_RDMA_DISCONNECT) {
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 		pthread_mutex_unlock(&remotes_mutex);
 		return;
 	}
 
 	//If we are here, the dest-service-id is resolved, but no connection established, yet
 	remote->state == RIPC_RDMA_CONNECTING;
-<<<<<<< HEAD
 	conn_id_mutex = &remote->na.cm_id_mutex;
 	pthread_mutex_unlock(&remotes_mutex);
 
@@ -589,16 +421,6 @@ void create_rdma_connection(uint16_t src, uint16_t dest) {
 	}
 	remote->na.rdma_cm_id->context	= remote;
 	conn_id				= remote->na.rdma_cm_id;
-=======
-
-	if (rdma_create_id(context.na.echannel, &(remote->rdma_cm_id), context.na.pd, RDMA_PS_TCP) < 0) {
-		DEBUG("Could not create cm-id.");
-		pthread_mutex_unlock(&remotes_mutex);
-		return;
-	}
-	remote->rdma_cm_id.context	= remote;
-	conn_id				= remote->rdma_cm_id;
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 
 	memset(&local_addr, 0, addr_len);
 	local_addr.sin_family		= AF_INET;
@@ -610,7 +432,6 @@ void create_rdma_connection(uint16_t src, uint16_t dest) {
 
 	retries = 0;
 resolve_addr:
-<<<<<<< HEAD
 	if (rdma_resolve_addr(	remote->na.rdma_cm_id, (struct sockaddr*) &local_addr,
 				(struct sockaddr*) &remote_addr, 3000) < 0) {
 		int err = errno;
@@ -622,17 +443,6 @@ resolve_addr:
 		pthread_mutex_lock(&remotes_mutex);
 		strip_remote_context(remote);
 		phtread_mutex_unlock(&remotes_mutex);
-=======
-	if (rdma_resolve_addr(	remote->rdma_cm_id, (struct sockaddr*) &local_addr,
-				(struct sockaddr*) &remote_addr, 3000) < 0) {
-		int err = errno;
-		DEBUG("Error, while resolving remote address in %hu. try. Code: %d (%s).", ++retries, err, strerror(err);
-		if (retries <= max_retries)
-			goto resolve_addr;
-
-		strip_remote_context(remote);
-		pthread_mutex_unlock(&remotes_mutex);
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 		return;
 	}
 
@@ -654,11 +464,8 @@ resolve_addr:
 			if (retries <= max_retries)
 				goto resolve_addr;
 
-<<<<<<< HEAD
 			pthread_mutex_unlock(conn_id_mutex);
 			pthread_mutex_lock(&remotes_mutex);
-=======
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 			strip_remote_context(remote);
 			pthread_mutex_unlock(&remotes_mutex);
 			return;
@@ -668,11 +475,8 @@ resolve_addr:
 			if (retries <= max_retries)
 				goto resolve_addr;
 
-<<<<<<< HEAD
 			pthread_mutex_unlock(conn_id_mutex);
 			pthread_mutex_lock(&remotes_mutex);
-=======
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 			strip_remote_context(remote);
 			pthread_mutex_unlock(&remotes_mutex);
 			return;
@@ -691,193 +495,42 @@ resolve_addr:
 	event				= NULL;
 
 	//TODO:	A fine programmer would source the following part (including the QP-creation) out..
-<<<<<<< HEAD
 	pthread_mutex_lock(&remotes_mutex);
 	remote->na.rdma_cchannel	= ibv_create_comp_channel(conn_id->verbs);
 	if (!remote->na.rdma_cchannel) {
 		DEBUG("Could not create completion channel for remote-id %hu.", msg->src_service_id);
 		rdma_ack_cm_event(event);
-=======
-	remote->na.rdma_cchannel	= ibv_create_comp_channel(conn_id->verbs);
-	if (!remote->rdma_cchannel) {
-		DEBUG("Could not create completion channel for remote-id %hu.", dest);
-		goto conn_req_out;
-	}
-
-	remote->na.rdma_send_cq		= ibv_create_cq(conn_id->verbs, 50, NULL, 0);
-	if (!remote->rdma_send_cq) {
-		DEBUG("Could not create sending completion queue for remote-id %hu.", dest);
-		goto conn_req_out;
-	}
-
-	remote->na.rdma_recv_cq		= ibv_create_cq(conn_id->verbs, 50, cc, 0);
-	if (!remote->rdma_recv_cq) {
-		DEBUG("Could not create receiving completion queue for remote-id %hu.", dest);
-		goto conn_req_out;
-	}
-
-	prepare_qp_init_attr(&qp_init_attr, remote);
-	remote->na.rdma_qp		= ibv_create_qp(conn_id, context.na.pd, &qp_init_attr);
-	if (!remote->rdma_qp) {
-		DEBUG("Could not create queue pair for remote-id %hu.", msg->src_service_id);
-		goto conn_req_out;
-	}
-
-	retries = 0;
-resolve_route:
-	if (rdma_resolve_route(remote->rdma_cm_id, 3000) < 0) {
-		int err = errno;
-		DEBUG("Error, while resolving route in %hu. try. Code: %d (%s).", ++retries, err, strerror(err);
-		if (retries <= max_retries) 
-			goto resolve_route;
-
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 		strip_remote_context(remote);
 		pthread_mutex_unlock(&remotes_mutex);
 		return;
 	}
-<<<<<<< HEAD
 
 	remote->na.rdma_send_cq		= ibv_create_cq(conn_id->verbs, 50, NULL, NULL, 0);
 	if (!remote->na.rdma_send_cq) {
 		DEBUG("Could not create sending completion queue for remote-id %hu.", dest);
 		rdma_ack_cm_event(event);
-=======
-	
-	if (rdma_get_cm_event(context.na.echannel, &event) < 0) {
-		int err = errno;
-		DEBUG("Error, while waiting for RDMA_CM_EVENT_ROUTE_RESOLVED. Code: %d (%s).", err, strerror(err));
-	}
-
-	while (!event || event->event != RDMA_CM_EVENT_ROUTE_RESOLVED) {
-		if (!event) {
-			DEBUG("Could not resolve address in %hu. try.", ++retries;);
-			if (retries <= max_retries) 
-				goto resolve_route;
-
-			strip_remote_context(remote);
-			pthread_mutex_unlock(&remotes_mutex);
-			return;
-		} else if (event->event == RDMA_CM_EVENT_ROUTE_ERROR) {
-			DEBUG("Could not resolve address in %hu. try.", ++retries);
-			rdma_ack_cm_event(event);
-			if (retries <= max_retries) 
-				goto resolve_route;
-
-			strip_remote_context(remote);
-			pthread_mutex_unlock(&remotes_mutex);
-			return;
-		} else
-			DEBUG(	"Received unexpected event (%s instead of RDMA_CM_EVENT_ROUTE_RESOLVED).",
-				rdma_event_str(event->event));
-		rdma_ack_cm_event(event);
-		event = NULL;
-
-		if (rdma_get_cm_event(context.na.echannel, &event) < 0) {
-			int err = errno;
-			DEBUG("Error, while waiting for RDMA_CM_EVENT_ROUTE_RESOLVED. Code: %d (%s).", err, strerror(err));
-		}
-	}
-	rdma_ack_cm_event(event);
-	event				= NULL;
-	
-	pthread_mutex_unlock(&remotes_mutex);
-	memset(&msg, 0, sizeof(msg));
-	msg.type			= RIPC_RDMA_CONN_REQ;
-	msg.dest_service_id		= dest;
-	msg.src_service_id		= sr;
-	prepare_conn_param(&conn_param, msg, sizeof(msg));
-
-	retries = 0;
-	//NOTE:	Again, we are holding this mutex _very_ long. See above for details.
-	pthread_mutex_lock(&remotes_mutex);
-connect:
-	if (rdma_connect(remote->rdma_cm_id, %conn_param) < 0) {
-		int err = errno;
-		DEBUG("Error, while connecting in %hu. try. Code: %d (%s).", ++retries, err, strerror(err);
-		if (retries <= max_retries) 
-			goto connect;
-
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 		strip_remote_context(remote);
 		pthread_mutex_unlock(&remotes_mutex);
 		return;
 	}
-<<<<<<< HEAD
 
 	remote->na.rdma_recv_cq		= ibv_create_cq(conn_id->verbs, 50, NULL, remote->na.rdma_cchannel, 0);
 	if (!remote->na.rdma_recv_cq) {
 		DEBUG("Could not create receiving completion queue for remote-id %hu.", dest);
 		rdma_ack_cm_event(event);
-=======
-	
-	if (rdma_get_cm_event(context.na.echannel, &event) < 0) {
-		int err = errno;
-		DEBUG("Error, while waiting for RDMA_CM_EVENT_ESTABLISHED. Code: %d (%s).", err, strerror(err));
-	}
-
-	while (!event || event->event != RDMA_CM_EVENT_ESTABLISHED) {
-		if (!event) {
-			DEBUG("Could not resolve address in %hu. try.", ++retries;);
-			if (retries <= max_retries) 
-				goto resolve_route;
-
-			strip_remote_context(remote);
-			pthread_mutex_unlock(&remotes_mutex);
-			return;
-		} else if (event->event == RDMA_CM_EVENT_CONNECT_ERROR) {
-			DEBUG("Could not resolve address in %hu. try.", ++retries);
-			rdma_ack_cm_event(event);
-			if (retries <= max_retries) 
-				goto resolve_route;
-
-			strip_remote_context(remote);
-			pthread_mutex_unlock(&remotes_mutex);
-			return;
-		} else if (event->event == RDMA_CM_EVENT_REJECTED) {
-			DEBUG("Remote side rejected connection.");
-			rdma_ack_cm_event(event);
-			strip_remote_context(remote);
-			pthread_mutex_unlock(&remotes_mutes);
-			return;
-		} else
-			DEBUG(	"Received unexpected event (%s instead of RDMA_CM_EVENT_ROUTE_RESOLVED).",
-				rdma_event_str(event->event));
-		rdma_ack_cm_event(event);
-		event = NULL;
-
-		if (rdma_get_cm_event(context.na.echannel, &event) < 0) {
-			int err = errno;
-			DEBUG("Error, while waiting for RDMA_CM_EVENT_ESTABLISHED. Code: %d (%s).", err, strerror(err));
-		}
-	}
-	if (event->param.private_data_len != sizeof(*resp)) {
-		DEBUG("The private data of the connection response has invalid length.");
-		rdma_ack_cm_event(event);
-		//TODO:	Here we would have to disconnect
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 		strip_remote_context(remote);
 		pthread_mutex_unlock(&remotes_mutex);
 		return;
 	}
-<<<<<<< HEAD
 
 	prepare_qp_init_attr(&qp_init_attr, remote);
 	if (rdma_create_qp(conn_id, context.na.pd, &qp_init_attr) < 0) {
 		DEBUG("Could not create queue pair for remote-id %hu.", msg->src_service_id);
 		rdma_ack_cm_event(event);
-=======
-	resp = (struct rdma_connect_msg*) event->param.private_data;
-	if (resp->type != RIPC_MSG_CONN_REPLY) {
-		DEBUG("The received connection message has an unexpected type.");
-		rdma_ack_cm_event(event);
-		//TODO:	Here we would have to disconnect
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 		strip_remote_context(remote);
 		pthread_mutex_unlock(&remotes_mutex);
 		return;
 	}
-<<<<<<< HEAD
 	remote->na.rdma_qp		= conn_id->qp;
 	pthread_mutex_unlock(&remotes_mutex);
 
@@ -891,12 +544,6 @@ resolve_route:
 
 		pthread_mutex_unlock(conn_id_mutex);
 		pthread_mutex_lock(&remotes_mutex);
-=======
-	if (resp->dest_service_id != dest || resp->src_service_id != src) {
-		DEBUG("We received a connection message which was not meant for us.");
-		rdma_ack_cm_event(event);
-		//TODO:	Here we would have to disconnect
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 		strip_remote_context(remote);
 		pthread_mutex_unlock(&remotes_mutex);
 		return;
@@ -1056,12 +703,7 @@ struct remote_context *alloc_remote_context(void) {
 	temp->state			= RIPC_RDMA_DISCONNECTED;
 	pthread_mutex_init(&(temp->na.cm_id_mutex), NULL);
 
-<<<<<<< HEAD
 	return temp;
-=======
-	remote->state = RIPC_RDMA_ESTABLISHED;
-	pthread_mutex_unlock(&remotes_mutex);
->>>>>>> ec858a5bb1c58f481a34ee18b66c763a1a1f0d4e
 }
 
 void alloc_queue_state(struct service_id *service_id) {
