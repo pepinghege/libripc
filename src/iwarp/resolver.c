@@ -97,9 +97,7 @@ cache_resolve_data:
 		pthread_mutex_lock(&remotes_mutex);
 		remote = context.remotes[req.src_service_id];
 		if (!remote) {
-			remote = (struct remote_context*) malloc(sizeof(struct remote_context));
-			memset(remote, 0, sizeof(struct remote_context));
-			remote->state = RIPC_RDMA_DISCONNECTED;
+			remote = alloc_remote_context();
 		}
 		remote->na.ip_addr		= req.na.ip_addr ? req.na.ip_addr : client_addr.sin_addr.s_addr;
 		remote->na.rdma_listen_port	= req.na.conn_port;
@@ -208,9 +206,7 @@ keep_waiting:
 	pthread_mutex_lock(&remotes_mutex);
 	remote = context.remotes[dest];
 	if (!remote) {
-		remote = (struct remote_context*) malloc(sizeof(struct remote_context));
-		memset(remote, 0, sizeof(struct remote_context));
-		remote->state = RIPC_RDMA_DISCONNECTED;
+		remote = alloc_remote_context();
 	}
 	remote->na.ip_addr		= req.na.ip_addr;
 	remote->na.rdma_listen_port	= req.na.conn_port;

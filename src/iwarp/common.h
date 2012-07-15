@@ -34,6 +34,7 @@ struct netarch_service_id {
 
 struct netarch_remote_context {
 	struct rdma_cm_id *rdma_cm_id;
+	pthread_mutex_t cm_id_mutex;
 	struct ibv_qp *rdma_qp;
 	struct ibv_cq *rdma_send_cq;
 	struct ibv_cq *rdma_recv_cq;

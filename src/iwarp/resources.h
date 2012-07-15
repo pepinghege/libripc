@@ -33,8 +33,14 @@ void create_rdma_connection(uint16_t src, uint16_t dest);
 /*
  * Mutex remotes_mutex must be hold when calling these functions!
  */
-void strip_remote_context(struct remote_context *remote);
 void prepare_qp_init_attr(struct ibv_qp_init_attr *init_attr, struct remote_context *remote);
+/*
+ * The remote-specific cm_id_mutex must not be hold when calling these functions!
+ */
+struct remote_context *alloc_remote_context(void);
+void strip_remote_context(struct remote_context *remote);
+
+
 
 void prepare_conn_param(struct rdma_conn_param *conn_param, void *payload, size_t len);
 
