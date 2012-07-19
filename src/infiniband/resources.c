@@ -173,7 +173,7 @@ void create_rdma_connection(uint16_t src, uint16_t dest) {
         */
        if (( ! context.remotes[dest])
     		   || ( ! context.remotes[dest]->na.ah)
-    		   || ( ! context.remotes[dest]->resolver_qp))
+    		   || ( ! context.remotes[dest]->na.resolver_qp))
     	   resolve(src, dest);
 
        assert(context.remotes[dest]);
@@ -306,7 +306,7 @@ void create_rdma_connection(uint16_t src, uint16_t dest) {
        wr.sg_list = &sge;
        wr.wr_id = 0xdeadbeef;
        wr.wr.ud.ah = remote->na.ah;
-       wr.wr.ud.remote_qpn = remote->resolver_qp;
+       wr.wr.ud.remote_qpn = remote->na.resolver_qp;
        wr.wr.ud.remote_qkey = 0xffff;
 
        struct ibv_send_wr *bad_wr = NULL;

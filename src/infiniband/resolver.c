@@ -523,8 +523,8 @@ void *start_responder(void *arg) {
 
 		assert(context.remotes[msg->src_service_id]);
 
-		if ((context.remotes[msg->src_service_id]->qp_num != msg->na.service_qpn) ||
-				(context.remotes[msg->src_service_id]->resolver_qp != msg->na.resolver_qpn)) {
+		if ((context.remotes[msg->src_service_id]->na.qp_num != msg->na.service_qpn) ||
+				(context.remotes[msg->src_service_id]->na.resolver_qp != msg->na.resolver_qpn)) {
 
 			if (context.remotes[msg->src_service_id]->na.ah) {
 				ibv_destroy_ah(context.remotes[msg->src_service_id]->na.ah);
@@ -536,8 +536,8 @@ void *start_responder(void *arg) {
 
 			context.remotes[msg->src_service_id]->na.ah =
 					ibv_create_ah(context.na.pd, &ah_attr);
-			context.remotes[msg->src_service_id]->qp_num = msg->na.service_qpn;
-			context.remotes[msg->src_service_id]->resolver_qp = msg->na.resolver_qpn;
+			context.remotes[msg->src_service_id]->na.qp_num = msg->na.service_qpn;
+			context.remotes[msg->src_service_id]->na.resolver_qp = msg->na.resolver_qpn;
 			context.remotes[msg->src_service_id]->state = RIPC_RDMA_DISCONNECTED;
 
 			if (context.remotes[msg->src_service_id]->na.rdma_qp) {
@@ -742,8 +742,8 @@ keep_waiting:
 		context.remotes[dest]->state = RIPC_RDMA_DISCONNECTED;
 	}
 	context.remotes[dest]->na.ah = tmp_ah;
-	context.remotes[dest]->qp_num = msg->na.service_qpn;
-	context.remotes[dest]->resolver_qp = msg->na.resolver_qpn;
+	context.remotes[dest]->na.qp_num = msg->na.service_qpn;
+	context.remotes[dest]->na.resolver_qp = msg->na.resolver_qpn;
 
 	pthread_mutex_unlock(&remotes_mutex);
 
