@@ -60,6 +60,9 @@ void *start_responder(void *arg) {
 		panic("Could not bind resolver listening socket");
 
 	while (0) {
+		in_addr_t client_ip;
+		uint16_t client_resolver_port;
+		uint16_t client_rdma_port;
 		memset(&client_addr, 0, addr_len);
 		client_addr.sin_family	= AF_INET;
 		if (recvfrom(sock, &req, msg_len, 0, (struct sockaddr*) &client_addr, &client_len) < 0) {
@@ -73,6 +76,15 @@ void *start_responder(void *arg) {
 			continue;
 		}
 
+		if (client_len) {
+			client_ip		= req.na.ip_addr	? req.na.ip_addr	: client_addr.sin_addr.s_addr;
+			client_resolver_port	= req.na.answer_port	? req.na.answer_port	: ntohs(client_addr.sin_port);
+		} else {
+			client_ip		= req.na.ip_addr;
+			client_resolver_port	= req.na.answer_port;
+		}
+		client_rdma_port		= req.na.conn_port;
+
 		if (!context.services[req.dest_service_id])
 			goto cache_resolve_data;
 
@@ -81,13 +93,9 @@ void *start_responder(void *arg) {
 		resp.dest_service_id		= req.dest_service_id;
 		resp.src_service_id		= req.src_service_id;
 		
-		if (client_len) {
-			client_addr.sin_addr.s_addr	= req.na.ip_addr ? req.na.ip_addr : client_addr.sin_addr.s_addr;
-			client_addr.sin_port		= req.na.answer_port ? htons(req.na.answer_port) : client_addr.sin_port;
-		} else {
-			client_addr.sin_addr.s_addr	= req.na.ip_addr;
-			client_addr.sin_port		= req.na.answer_port;
-		}
+		client_addr.sin_addr.s_addr	= client_ip;
+		client_addr.sin_port		= htons(client_resolver_port);
+
 		if (sendto(sock, &resp, msg_len, 0, (struct sockaddr*) &client_addr, addr_len) < 0) {
 			int err = errno;
 			DEBUG("Could not send resolver response. Code %d (%s).", err, sterror(err));
@@ -98,9 +106,19 @@ cache_resolve_data:
 		remote = context.remotes[req.src_service_id];
 		if (!remote) {
 			remote = alloc_remote_context();
+		} else if (remote->state != RIPC_RDMA_DISCONNECTED
+				&& remote->na.ip_addr != 0
+				&& remote->na.ip_addr != client_ip) {
+			/*
+			 * In this case we have a rdma-connection (or we are currently establishing one), which is
+			 * no longer valid, as the remote has a new ip-address, which has turned down the TCP
+			 * connection. So we strip the remote context, what in turn will lead to a new connection
+			 * establishment on the new ip.
+			 */
+			strip_remote_context(remote);
 		}
-		remote->na.ip_addr		= req.na.ip_addr ? req.na.ip_addr : client_addr.sin_addr.s_addr;
-		remote->na.rdma_listen_port	= req.na.conn_port;
+		remote->na.ip_addr		= client_ip;
+		remote->na.rdma_listen_port	= client_rdma_port;
 
 		context.remotes[req.src_service_id] = remote;
 		pthread_mutex_unlock(&remotes_mutex);
@@ -207,6 +225,10 @@ keep_waiting:
 	remote = context.remotes[dest];
 	if (!remote) {
 		remote = alloc_remote_context();
+	} else if (remote->state != RIPC_RDMA_DISCONNECTED
+			&& remote->na.ip_addr != 0
+			&& remote->na.ip_addr != req.na.ip_addr) {
+		strip_remote_context(remote);
 	}
 	remote->na.ip_addr		= req.na.ip_addr;
 	remote->na.rdma_listen_port	= req.na.conn_port;
