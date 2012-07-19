@@ -8,6 +8,7 @@
 /Makefile
 /config.log
 *.o
+*.lo
 *.swp
 /autom4te.cache
 /build*
