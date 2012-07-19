@@ -638,18 +638,13 @@ resolve_route:
 	//NOTE:	Again, we are holding this mutex _very_ long. See above for details.
 	pthread_mutex_lock(&remotes_mutex);
 connect:
+	if (++retries > max_retries) 
+		goto out_cmid;
+
 	if (rdma_connect(remote->na.rdma_cm_id, &conn_param) < 0) {
 		int err = errno;
 		DEBUG("Error, while connecting in %hu. try. Code: %d (%s).", ++retries, err, strerror(err));
-		if (retries <= max_retries) 
-			goto connect;
-
-		phtread_mutex_unlock(conn_id_mutex);
-		pthread_mutex_lock(&remotes_mutex);
-		strip_remote_context(remote);
-		pthread_mutex_unlock(&remotes_mutex);
-		rdma_destroy_event_channel(echannel);
-		return;
+		goto connect;
 	}
 	
 	if (rdma_get_cm_event(context.na.echannel, &event) < 0) {
@@ -659,40 +654,25 @@ connect:
 
 	while (!event || event->event != RDMA_CM_EVENT_ESTABLISHED) {
 		if (!event) {
-			DEBUG("Could not resolve address in %hu. try.", ++retries;);
-			if (retries <= max_retries) 
-				goto resolve_route;
-
-			pthread_mutex_unlock(conn_id_mutex);
-			pthread_mutex_lock(&remotes_mutex);
-			strip_remote_context(remote);
-			pthread_mutex_unlock(&remotes_mutex);
-			rdma_destroy_event_channel(echannel);
-			return;
+			DEBUG("Could not connect in %hu. try.", (retries + 1));
+			rdma_ack_cm_event(event);
+			goto connect;
 		} else if (event->event == RDMA_CM_EVENT_CONNECT_ERROR) {
-			DEBUG("Could not resolve address in %hu. try.", ++retries);
+			DEBUG("Could not connect in %hu. try.", (retries + 1));
 			rdma_ack_cm_event(event);
-			if (retries <= max_retries) 
-				goto resolve_route;
-
-			pthread_mutex_unlock(conn_id_mutex);
-			pthread_mutex_lock(&remotes_mutex);
-			strip_remote_context(remote);
-			pthread_mutex_unlock(&remotes_mutex);
-			rdma_destroy_event_channel(echannel);
-			return;
+			goto connect;
 		} else if (event->event == RDMA_CM_EVENT_REJECTED) {
-			DEBUG("Remote side rejected connection.");
+			DEBUG("Remote side rejected connection in %hu. try." (retries + 1));
 			rdma_ack_cm_event(event);
-			pthread_mutex_unlock(conn_id_mutex);
-			pthread_mutex_lock(&remotes_mutex);
-			strip_remote_context(remote);
-			pthread_mutex_unlock(&remotes_mutex);
-			rdma_destroy_event_channel(echannel);
-			return;
-		} else
+			goto out_cmid;
+		} else if (event->event == RDMA_CM_EVENT_UNREACHABLE) {
+			DEBUG("Remote side is unreachable in &hu. try." (retries + 1));
+			rdma_ack_cm_event(event);
+			goto connect;
+		} else {
 			DEBUG(	"Received unexpected event (%s instead of RDMA_CM_EVENT_ROUTE_RESOLVED).",
 				rdma_event_str(event->event));
+		}
 		rdma_ack_cm_event(event);
 		event = NULL;
 
@@ -708,31 +688,20 @@ connect:
 		DEBUG("The private data of the connection response has invalid length.");
 		rdma_ack_cm_event(event);
 		//TODO:	Here we would have to disconnect
-		pthread_mutex_lock(&remotes_mutex);
-		strip_remote_context(remote);
-		pthread_mutex_unlock(&remotes_mutex);
-		return;
+		goto out;
 	}
 	resp = (struct rdma_connect_msg*) event->param.conn.private_data;
 	if (resp->type != RIPC_RDMA_CONN_REPLY) {
 		DEBUG("The received connection message has an unexpected type.");
 		rdma_ack_cm_event(event);
 		//TODO:	Here we would have to disconnect
-		pthread_mutex_lock(&remotes_mutex);
-		strip_remote_context(remote);
-		pthread_mutex_unlock(&remotes_mutex);
-		rdma_destroy_event_channel(echannel);
-		return;
+		goto out;
 	}
 	if (resp->dest_service_id != dest || resp->src_service_id != src) {
 		DEBUG("We received a connection message which was not meant for us.");
 		rdma_ack_cm_event(event);
 		//TODO:	Here we would have to disconnect
-		pthread_mutex_lock(&remotes_mutex);
-		strip_remote_context(remote);
-		pthread_mutex_unlock(&remotes_mutex);
-		rdma_destroy_event_channel(echannel);
-		return;
+		goto out;
 	}
 
 	pthread_mutex_lock(&remotes_mutex);
@@ -746,6 +715,16 @@ connect:
 	pthread_mutex_unlock(conn_id_mutex);
 
 	rdma_destroy_event_channel(echannel);
+	return;
+
+out_cmid:
+	pthread_mutex_unlock(conn_id_mutex);
+out:
+	pthread_mutex_lock(&remotes_mutex);
+	strip_remote_context(remote);
+	pthread_mutex_unlock(&remotes_mutex);
+	rdma_destroy_event_channel(echannel);
+	return;
 }
 
 struct remote_context *alloc_remote_context(void) {
