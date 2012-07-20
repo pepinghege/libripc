@@ -29,37 +29,7 @@ pthread_t conn_mgmt_thread;
 pthread_mutex_t rdma_connect_mutex;
 
 void conn_mgmt_init() {
-	struct sockaddr_in listen_addr;
-	socklen_t addr_len		= sizeof(listen_addr);
-	
 	pthread_mutex_lock(&rdma_connect_mutex); //Unlocked in start_conn_manager
-
-	context.na.echannel	= rdma_create_event_channel();
-	if (!context.na.echannel) {
-		panic("Could not create event channel.");
-	}
-	if (rdma_create_id(context.na.echannel, &context.na.listen_cm_id, NULL, RDMA_PS_TCP) < 0) {
-		int err = errno;
-		panic("Could not create cm-id for conn-mgmt-thread.");
-	}
-
-	memset(&listen_addr, 0, addr_len);
-	listen_addr.sin_family		= AF_INET;
-	listen_addr.sin_addr.s_addr	= context.na.ip_addr;
-	/*
-	 * We currently listen on one ip-address only, although in general, listening on all available
-	 * ip-addresses is possible. Two different schemes could be realized:
-	 * 1)	We handle multiple ip-addresses, i.e. connections with different remotes would be established
-	 *	over different ip-addresses.
-	 * 2)	We start listen on all ip-addresses, but after the first establisehd connection, only the
-	 *	respective ip-address can be used by all other services.
-	 */
-	if (rdma_bind_addr(context.na.listen_cm_id, (struct sockaddr*) &listen_addr) < 0) {
-		int err = errno;
-		panic("Could not bind to given ip:port.");
-	}
-	context.na.conn_listen_port	= rdma_get_src_port(context.na.listen_cm_id);
-
 	pthread_create(&conn_mgmt_thread, NULL, &start_conn_manager, NULL);
 }
 
@@ -737,6 +707,6 @@ struct remote_context *alloc_remote_context(void) {
 	return temp;
 }
 
-void alloc_queue_state(struct service_id *service_id) {
-	DEBUG("alloc_queue_state");
+void alloc_queue_state(struct service_id *service) {
+	/* NOOP */
 }

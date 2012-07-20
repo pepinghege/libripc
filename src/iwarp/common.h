@@ -49,8 +49,16 @@ struct netarch_library_context {
 	uint16_t conn_listen_port;
 	struct rdma_event_channel *echannel;
 	uint16_t lid;
+	uint8_t port_num;
 	struct rdma_cm_id *listen_cm_id;
 	struct ibv_pd *pd;
 };
+
+struct interface {
+	char name[16];
+	struct sockaddr addr;
+};
+
+void netarch_init(void);
 
 #endif /* !__IWARP_COMMON_H__ */
