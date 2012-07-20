@@ -50,6 +50,8 @@ AC_ARG_WITH(netarch,
     ]
 )
 
+SUBNETARCH=''
+
 
 dnl InfiniBand Checks
 case $NETARCH in
@@ -107,17 +109,34 @@ case $NETARCH in
 		echo "Error: Librdmacm development headers not found!"
 		exit -1
 	])
-
-	AC_CHECK_HEADER([softiwarp/siw.h],[],[
-		echo "Error: Libsiw development headers not found!"
-		exit -1
-	])
         ;;
   *)
 	AC_MSG_ERROR([Unknown network architecture: $NETARCH.
 	Please specify network architecture using --with-netarch=NETARCH])
 	;;
 esac
+
+AC_ARG_WITH(subnetarch,
+    [  --enable-subnetarch    Set subnetwork architecture.],
+    [ case "$withval" in
+          siw) SUBNETARCH=siw ;;
+          *) AC_MSG_ERROR(bad value $withval for --enable-subnetarch) ;;
+      esac
+    ]
+)
+
+case $SUBNETARCH in
+  siw)
+	AC_DEFINE([SUBNETARCH_PREFIX], ["siw_"], [Enable softiwarp network subarchitecture])
+	AC_DEFINE([SUBNETARCH_PREFIX_LEN], [4], [Enable softiwarp network subarchitecture])
+
+	AC_CHECK_HEADER([softiwarp/siw.h],[],[
+		echo "Error: Libsiw development headers not found!"
+		exit -1
+	])
+	;;
+esac
+
 
 AC_CHECK_LIB([pthread],[pthread_create],[],[
 	echo "Error: Libpthread not found!"

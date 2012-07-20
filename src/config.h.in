@@ -104,6 +104,12 @@
 /* Define to 1 if you have the ANSI C header files. */
 #undef STDC_HEADERS
 
+/* Enable softiwarp network subarchitecture */
+#undef SUBNETARCH_PREFIX
+
+/* Enable softiwarp network subarchitecture */
+#undef SUBNETARCH_PREFIX_LEN
+
 /* Version number of package */
 #undef VERSION
 
