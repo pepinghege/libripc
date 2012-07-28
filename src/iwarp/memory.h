@@ -18,11 +18,13 @@
 #include "../memory.h"
 #endif
 
-#ifndef __INFINIBAND__MEMORY_H__
-#define __INFINIBAND__MEMORY_H__
+#ifndef __IWARP__MEMORY_H__
+#define __IWARP__MEMORY_H__
 
-typedef void *netarch_mem_buf_t;
+typedef struct ibv_mr *netarch_mem_buf_t;
 
 #define INVALID_NETARCH_MEM_BUF NULL
 
-#endif /* !__INFINIBAND__MEMORY_H__ */
+void post_new_recv_buf(struct ibv_qp *qp);
+
+#endif /* !__IWARP__MEMORY_H__ */

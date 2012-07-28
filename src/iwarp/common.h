@@ -41,11 +41,14 @@ struct netarch_remote_context {
 	struct ibv_comp_channel *rdma_cchannel;
 	in_addr_t ip_addr;
 	uint16_t rdma_listen_port;
+	uint16_t msg_port;
 };
 
 struct netarch_library_context {
 	in_addr_t ip_addr;
 	in_addr_t bcast_ip_addr;
+	int msg_socket;
+	pthread_mutex_t socket_mutex;
 	uint16_t conn_listen_port;
 	struct rdma_event_channel *echannel;
 	uint16_t lid;
