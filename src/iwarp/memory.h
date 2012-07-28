@@ -21,8 +21,10 @@
 #ifndef __INFINIBAND__MEMORY_H__
 #define __INFINIBAND__MEMORY_H__
 
-typedef void *netarch_mem_buf_t;
+typedef struct ibv_mr *netarch_mem_buf_t;
 
 #define INVALID_NETARCH_MEM_BUF NULL
+
+void post_new_recv_buf(struct ibv_qp *qp);
 
 #endif /* !__INFINIBAND__MEMORY_H__ */
