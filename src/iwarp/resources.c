@@ -23,12 +23,16 @@
 #include <../resources.h>
 #include <memory.h>
 
-struct service_id rdma_service_id;
+cq_list_t *cq_list			= NULL;
+pthread_mutex_t cq_list_mutex;
+
 pthread_t conn_mgmt_thread;
 //TODO: Use this mutex!
 pthread_mutex_t rdma_connect_mutex;
 
 void conn_mgmt_init() {
+	pthread_mutex_init(&cq_list_mutex, NULL);
+
 	pthread_mutex_lock(&rdma_connect_mutex); //Unlocked in start_conn_manager
 	pthread_create(&conn_mgmt_thread, NULL, &start_conn_manager, NULL);
 }
@@ -705,6 +709,40 @@ struct remote_context *alloc_remote_context(void) {
 	pthread_mutex_init(&(temp->na.cm_id_mutex), NULL);
 
 	return temp;
+}
+
+void add_cq_to_list(struct ibv_cq *cq) {
+	cq_list_t *new		= (cq_list_t*) malloc(sizeof(cq_list_t));
+	new->cq			= cq;
+	pthread_mutex_lock(&cq_list_mutex);
+	new->next		= cq_list;
+
+	cq_list			= new;
+	pthread_mutex_unlock(&cq_list_mutex);
+}
+
+void del_cq_from_list(struct ibv_cq *cq) {
+	pthread_mutex_lock(&cq_list_mutex);
+	cq_list_t *walk		= cq_list;
+	cq_list_t *last		= NULL;
+
+	while (walk) {
+		if (walk->cq == cq)
+			break;
+
+		last		= walk;
+		walk		= walk->next;
+	}
+
+	if (walk) {
+		if (last)
+			last->next	= walk->next;
+		else //First element in list
+			cq_list		= walk->next;
+		
+		free(walk);
+	}
+	pthread_mutex_unlock(&cq_list_mutex);
 }
 
 void alloc_queue_state(struct service_id *service) {
