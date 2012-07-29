@@ -25,6 +25,8 @@
 #include <rdma/rdma_cma.h>
 #include <netinet/in.h>
 
+#define	RECV_BUF_SIZE	1024
+
 struct netarch_service_id {
 	bool no_cchannel;
 	struct ibv_cq *send_cq;
