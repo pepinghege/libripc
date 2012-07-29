@@ -626,5 +626,277 @@ ripc_receive(
 		uint32_t **long_item_sizes,
 		uint16_t *num_long_items) {
 
-	return 1;
+	struct ibv_wc wc;
+	void *ctx;
+	struct ibv_cq *cq, *recv_cq;
+	struct ibv_comp_channel *cchannel;
+	struct ibv_qp *qp;
+	uint32_t i;
+	int ret = 0;
+
+	recv_cq			= NULL;
+	cchannel		= NULL;
+	qp			= NULL;
+
+	DEBUG("receive cchannel %p service_id %d", cchannel, service_id);
+
+restart:
+	{} //Make the compiler happy.. He doesn't like a declaration of a bool after a label.
+	bool received		= false;
+	do {
+		pthread_mutex_lock(&cq_list_mutex); //Inside or outside the loop?
+
+		cq_list_t *walk		= cq_list;
+		while (walk) {
+			if (ibv_poll_cq(walk->cq, 1, &wc) > 0) {
+				received	= true;
+				recv_cq		= walk->cq;
+				cchannel	= recv_cq->channel;
+				pthread_mutex_lock(&remotes_mutex);
+				qp		= ((struct remote_context*) recv_cq->cq_context)->na.rdma_qp;
+				pthread_mutex_unlock(&remotes_mutex);
+				pthread_mutex_unlock(&cq_list_mutex);
+				del_cq_from_list(recv_cq);
+				pthread_mutex_lock(&cq_list_mutex);
+				break;
+			} else {
+				if (ibv_get_cq_event(walk->cq->channel, &cq, &ctx) < 0) {
+					if (errno == EINTR) //interrupted, most likely by a user timeout mechanism
+						return 1;
+				}
+			}
+
+			walk		= walk->next;
+		}
+
+		pthread_mutex_unlock(&cq_list_mutex);
+	} while (!received);
+
+	ibv_get_cq_event(cchannel, &cq, &ctx);
+
+	ibv_ack_cq_events(recv_cq, 1);
+	ibv_req_notify_cq(recv_cq, 0);
+
+
+	assert(wc.status == IBV_WC_SUCCESS);
+
+	DEBUG("received!");
+
+	post_new_recv_buf(qp);
+
+	struct ibv_recv_wr *wr = (struct ibv_recv_wr *)(wc.wr_id);
+	struct msg_header *hdr = (struct msg_header *)(wr->sg_list->addr);
+
+	if ((hdr->type != RIPC_MSG_SEND) || (hdr->to != service_id)) {
+		ripc_buf_free(hdr);
+		free(wr->sg_list);
+		free(wr);
+		ERROR("Spurious message, restarting");
+		goto restart;
+	}
+
+	DEBUG("Message type is %#x", hdr->type);
+
+	//the next block can cause segmentation faults. Disable it for now until
+	//the error is found.
+#if 0
+	//cache remote address handle if we don't have it already
+	pthread_mutex_lock(&remotes_mutex);
+
+	if (( ! context.remotes[hdr->from]) ||
+			( ! context.remotes[hdr->from]->na.ah)) {
+		DEBUG("Caching remote address handle for remote %u", hdr->from);
+
+		if ( ! context.remotes[hdr->from]) {
+			context.remotes[hdr->from] = malloc(sizeof(struct remote_context));
+			memset(context.remotes[hdr->from], 0, sizeof(struct remote_context));
+		}
+
+		assert(context.remotes[hdr->from]);
+
+		DEBUG("context: %p", &context);
+		DEBUG("context.remotes[hdr->from]: %p", context.remotes[hdr->from]);
+		DEBUG("context.na.pd: %p", context.na.pd);
+		DEBUG("wc: %p", &wc);
+
+		context.remotes[hdr->from]->na.ah =
+				ibv_create_ah_from_wc(context.na.pd, &wc, NULL, 1);
+
+		//not conditional as we assume when the ah needs updating, so does the qp number
+		context.remotes[hdr->from]->qp_num = wc.src_qp;
+	}
+
+	pthread_mutex_unlock(&remotes_mutex);
+#endif
+	struct short_header *msg	= (struct short_header*) (wr->sg_list->addr + sizeof(struct msg_header));
+
+	struct long_desc *long_msg	= (struct long_desc*) (msg + sizeof(struct short_header) * hdr->short_words);
+
+	struct long_desc *return_bufs	= (struct long_desc*) (long_msg + sizeof(struct long_desc) * hdr->long_words);
+
+	if (hdr->short_words) {
+		*short_items = malloc(sizeof(void *) * hdr->short_words);
+		assert(*short_items);
+		*short_item_sizes = malloc(sizeof(uint32_t *) * hdr->short_words);
+		assert(*short_item_sizes);
+	} else {
+		*short_items = NULL;
+		*short_item_sizes = NULL;
+	}
+
+	for (i = 0; i < hdr->short_words; ++i) {
+		(*short_items)[i] = (void *)(wr->sg_list->addr + msg[i].offset);
+		(*short_item_sizes)[i] = msg[i].size;
+		DEBUG("Short word %u reads:\n%s", i, (char *) (*short_items)[i]);
+	}
+
+	if (hdr->long_words) {
+		*long_items = malloc(sizeof(void *) * hdr->long_words);
+		assert(*long_items);
+		*long_item_sizes = malloc(sizeof(uint32_t *) * hdr->long_words);
+		assert(*long_item_sizes);
+	} else {
+		*long_items = NULL;
+		*long_item_sizes = NULL;
+	}
+
+	for (i = 0; i < hdr->long_words; ++i) {
+		DEBUG("Received long item: addr %#lx, length %zu, rkey %#x",
+				long_msg[i].addr,
+				long_msg[i].length,
+				//long_msg[i].qp_num,
+				long_msg[i].rkey);
+
+		if (long_msg[i].transferred) {
+			//message has been pushed to a return buffer
+			DEBUG("Sender used return buffer at address %lx",
+					long_msg[i].addr);
+			(*long_items)[i] = (void *)long_msg[i].addr;
+			(*long_item_sizes)[i] = long_msg[i].length;
+			continue;
+		}
+
+		void *rdma_addr = recv_window_list_get(long_msg[i].length);
+		if (!rdma_addr) {
+			DEBUG("Not enough receive windows available! Discarding rest of message");
+			ret = 1;
+			break;
+		}
+		DEBUG("Found receive window at address %p", rdma_addr);
+
+		mem_buf_t rdma_mem_buf = used_buf_list_get(rdma_addr);
+		used_buf_list_add(rdma_mem_buf);
+
+		DEBUG("Found rdma mr: addr %lx, length %zu",
+				rdma_mem_buf.addr, rdma_mem_buf.size);
+
+		struct ibv_sge rdma_sge;
+		rdma_sge.addr = (uint64_t)rdma_addr;
+		rdma_sge.length = long_msg[i].length;
+		rdma_sge.lkey = rdma_mem_buf.na->lkey;
+
+		struct ibv_send_wr rdma_wr;
+		rdma_wr.next = NULL;
+		rdma_wr.num_sge = 1;
+		rdma_wr.opcode = IBV_WR_RDMA_READ;
+		rdma_wr.send_flags = IBV_SEND_SIGNALED;
+		rdma_wr.sg_list = &rdma_sge;
+		rdma_wr.wr_id = 0xdeadbeef;
+		rdma_wr.wr.rdma.remote_addr = long_msg[i].addr;
+		rdma_wr.wr.rdma.rkey = long_msg[i].rkey;
+		struct ibv_send_wr *rdma_bad_wr;
+
+		struct ibv_qp *rdma_qp;
+		struct ibv_cq *rdma_cq, *tmp_cq;
+		struct ibv_comp_channel *rdma_cchannel;
+		pthread_mutex_lock(&remotes_mutex);
+		rdma_qp = context.remotes[hdr->from]->na.rdma_qp;
+		rdma_cq = context.remotes[hdr->from]->na.rdma_send_cq;
+		rdma_cchannel = context.remotes[hdr->from]->na.rdma_cchannel;
+		pthread_mutex_unlock(&remotes_mutex);
+
+		ret = ibv_post_send(
+				rdma_qp,
+				&rdma_wr,
+				&rdma_bad_wr);
+		if (ret) {
+			ERROR("Failed to post rdma read for message item %u: %s", i, strerror(ret));
+		} else {
+			DEBUG("Posted rdma read for message item %u", i);
+		}
+
+		struct ibv_wc rdma_wc;
+
+		do {
+			ibv_get_cq_event(rdma_cchannel,
+			&tmp_cq,
+			&ctx);
+			/*
+			 * We don't want to interrupt a running transfer!
+			 * Note that this RDMA operation always generates a completion
+			 * eventually. If it fails, it generates a completion denoting
+			 * the failure.
+			 */
+
+			assert(tmp_cq == rdma_cq);
+
+			ibv_ack_cq_events(rdma_cq, 1);
+			ibv_req_notify_cq(rdma_cq, 0);
+
+		} while (!(ibv_poll_cq(rdma_cq, 1, &rdma_wc)));
+
+		DEBUG("received completion message!");
+		if (rdma_wc.status) {
+			ERROR("Send result: %s", ibv_wc_status_str(rdma_wc.status));
+			ERROR("QP state: %d", context.remotes[hdr->from]->na.rdma_qp->state);
+		} else {
+			DEBUG("Result: %s", ibv_wc_status_str(rdma_wc.status));
+		}
+
+		DEBUG("Message reads: %s", (char *)rdma_addr);
+
+		(*long_items)[i] = rdma_addr;
+		(*long_item_sizes)[i] = long_msg[i].length;
+	}
+
+	mem_buf_t mem_buf;
+	for (i = 0; i < hdr->new_return_bufs; ++i) {
+		DEBUG("Found new return buffer: Address %lx, length %zu, rkey %#x",
+				return_bufs[i].addr,
+				return_bufs[i].length,
+				return_bufs[i].rkey);
+
+		//if addr==0, the buffer was faulty at the other end
+		if (return_bufs[i].addr) {
+			DEBUG("Return buffer is valid");
+
+			/*
+			 * Our buffer lists store MRs by default, so take a little detour
+			 * here to make them happy.
+			 */
+                        mem_buf.na = malloc(sizeof(struct ibv_mr));
+			memset(mem_buf.na, 0, sizeof(struct ibv_mr));
+
+			mem_buf.na->addr = (void *)return_bufs[i].addr;
+			mem_buf.na->length = return_bufs[i].length;
+                        mem_buf.na->rkey = return_bufs[i].rkey;
+			mem_buf.addr = (uint64_t) mem_buf.na->addr;
+			mem_buf.size = mem_buf.na->length;
+
+			return_buf_list_add(hdr->from, mem_buf);
+
+			DEBUG("Saved return buffer for destination %u", hdr->from);
+		}
+	}
+
+	*from_service_id = hdr->from;
+	*num_short_items = hdr->short_words;
+	*num_long_items = hdr->long_words;
+
+	if (! hdr->short_words)
+		ripc_buf_free(hdr);
+	free(wr->sg_list);
+	free(wr);
+
+	return ret;
 }

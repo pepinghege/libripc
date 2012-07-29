@@ -188,6 +188,7 @@ void *start_conn_manager(void *arg) {
 				continue;
 			}
 			remote->na.rdma_qp		= conn_id->qp;
+			remote->na.rdma_recv_cq		= (void*) remote;
 
 			pthread_mutex_lock(&(remote->na.cm_id_mutex));
 			remote->na.rdma_cm_id		= conn_id;
@@ -541,6 +542,7 @@ resolve_addr:
 		return;
 	}
 	remote->na.rdma_qp		= conn_id->qp;
+	remote->na.rdma_recv_cq		= (void*) remote;
 	pthread_mutex_unlock(&remotes_mutex);
 
 	retries = 0;
