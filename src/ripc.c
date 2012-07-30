@@ -50,6 +50,8 @@ uint8_t init() {
 	pthread_mutex_init(&rdma_connect_mutex, NULL);
 	pthread_mutex_init(&resolver_mutex, NULL);
 
+	conn_mgmt_init();
+
         resolver_init();
 
        
