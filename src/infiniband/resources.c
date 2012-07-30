@@ -20,6 +20,10 @@
 struct service_id rdma_service_id;
 pthread_mutex_t rdma_connect_mutex;
 
+void conn_mgmt_init() {
+
+}
+
 void alloc_queue_state(struct service_id *service_id) {
 	uint32_t i;
 
@@ -322,7 +326,7 @@ retry:
     	   ERROR("Failed to send rdma connect request: %s", strerror(ret));
     	   goto error;
        } else {
-    	   DEBUG("Sent rdma connect request to remote %u (qp %u)", dest, remote->resolver_qp);
+    	   DEBUG("Sent rdma connect request to remote %u (qp %u)", dest, remote->na.resolver_qp);
        }
 
        DEBUG("RDMA QP state: %u", rdma_service_id.na.qp->state);
