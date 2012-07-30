@@ -89,6 +89,7 @@ void *start_conn_manager(void *arg) {
 				DEBUG("Received rdma connect request for service-id we don't host.");
 				rdma_ack_cm_event(event);
 				if (rdma_reject(conn_id, NULL, 0) < 0) {
+					int err = errno;
 					DEBUG(	"Error rejecting an invalid connection request. Code: %d (%s)", 
 						err, strerror(err));
 					continue;
@@ -438,14 +439,14 @@ resolve_addr:
 	if (rdma_resolve_addr(	remote->na.rdma_cm_id, (struct sockaddr*) &local_addr,
 				(struct sockaddr*) &remote_addr, 3000) < 0) {
 		int err = errno;
-		DEBUG("Error, while resolving remote address in %hu. try. Code: %d (%s).", ++retries, err, strerror(err));
+		DEBUG("Error, while resolving remote address in %zu. try. Code: %d (%s).", ++retries, err, strerror(err));
 		if (retries <= max_retries)
 			goto resolve_addr;
 
 		pthread_mutex_unlock(conn_id_mutex);
 		pthread_mutex_lock(&remotes_mutex);
 		strip_remote_context(remote);
-		phtread_mutex_unlock(&remotes_mutex);
+		pthread_mutex_unlock(&remotes_mutex);
 		rdma_destroy_event_channel(echannel);
 		return;
 	}
@@ -464,7 +465,7 @@ resolve_addr:
 
 	while (!event || event->event != RDMA_CM_EVENT_ADDR_RESOLVED) {
 		if (!event) {
-			DEBUG("Could not resolve address in %hu. try.", ++retries);
+			DEBUG("Could not resolve address in %zu. try.", ++retries);
 			if (retries <= max_retries)
 				goto resolve_addr;
 
@@ -475,7 +476,7 @@ resolve_addr:
 			rdma_destroy_event_channel(echannel);
 			return;
 		} else if (event->event == RDMA_CM_EVENT_ADDR_ERROR) {
-			DEBUG("Could not resolve address in %hu. try.", ++retries);
+			DEBUG("Could not resolve address in %zu. try.", ++retries);
 			rdma_ack_cm_event(event);
 			if (retries <= max_retries)
 				goto resolve_addr;
@@ -504,7 +505,7 @@ resolve_addr:
 	pthread_mutex_lock(&remotes_mutex);
 	remote->na.rdma_cchannel	= ibv_create_comp_channel(conn_id->verbs);
 	if (!remote->na.rdma_cchannel) {
-		DEBUG("Could not create completion channel for remote-id %hu.", msg->src_service_id);
+		DEBUG("Could not create completion channel for remote-id %u.", msg.src_service_id);
 		rdma_ack_cm_event(event);
 		strip_remote_context(remote);
 		pthread_mutex_unlock(&remotes_mutex);
@@ -514,7 +515,7 @@ resolve_addr:
 
 	remote->na.rdma_send_cq		= ibv_create_cq(conn_id->verbs, 50, NULL, NULL, 0);
 	if (!remote->na.rdma_send_cq) {
-		DEBUG("Could not create sending completion queue for remote-id %hu.", dest);
+		DEBUG("Could not create sending completion queue for remote-id %u.", dest);
 		rdma_ack_cm_event(event);
 		strip_remote_context(remote);
 		pthread_mutex_unlock(&remotes_mutex);
@@ -534,7 +535,7 @@ resolve_addr:
 
 	prepare_qp_init_attr(&qp_init_attr, remote);
 	if (rdma_create_qp(conn_id, context.na.pd, &qp_init_attr) < 0) {
-		DEBUG("Could not create queue pair for remote-id %hu.", msg->src_service_id);
+		DEBUG("Could not create queue pair for remote-id %hu.", msg.src_service_id);
 		rdma_ack_cm_event(event);
 		strip_remote_context(remote);
 		pthread_mutex_unlock(&remotes_mutex);
@@ -549,7 +550,7 @@ resolve_addr:
 resolve_route:
 	if (rdma_resolve_route(remote->na.rdma_cm_id, 3000) < 0) {
 		int err = errno;
-		DEBUG("Error, while resolving route in %hu. try. Code: %d (%s).", ++retries, err, strerror(err));
+		DEBUG("Error, while resolving route in %zu. try. Code: %d (%s).", ++retries, err, strerror(err));
 		if (retries <= max_retries) 
 			goto resolve_route;
 
@@ -568,7 +569,7 @@ resolve_route:
 
 	while (!event || event->event != RDMA_CM_EVENT_ROUTE_RESOLVED) {
 		if (!event) {
-			DEBUG("Could not resolve address in %hu. try.", ++retries;);
+			DEBUG("Could not resolve address in %zu. try.", ++retries);
 			if (retries <= max_retries) 
 				goto resolve_route;
 
@@ -579,7 +580,7 @@ resolve_route:
 			rdma_destroy_event_channel(echannel);
 			return;
 		} else if (event->event == RDMA_CM_EVENT_ROUTE_ERROR) {
-			DEBUG("Could not resolve address in %hu. try.", ++retries);
+			DEBUG("Could not resolve address in %zu. try.", ++retries);
 			rdma_ack_cm_event(event);
 			if (retries <= max_retries) 
 				goto resolve_route;
@@ -619,7 +620,7 @@ connect:
 
 	if (rdma_connect(remote->na.rdma_cm_id, &conn_param) < 0) {
 		int err = errno;
-		DEBUG("Error, while connecting in %hu. try. Code: %d (%s).", ++retries, err, strerror(err));
+		DEBUG("Error, while connecting in %zu. try. Code: %d (%s).", ++retries, err, strerror(err));
 		goto connect;
 	}
 	
@@ -630,19 +631,19 @@ connect:
 
 	while (!event || event->event != RDMA_CM_EVENT_ESTABLISHED) {
 		if (!event) {
-			DEBUG("Could not connect in %hu. try.", (retries + 1));
+			DEBUG("Could not connect in %zu. try", (retries + 1));
 			rdma_ack_cm_event(event);
 			goto connect;
 		} else if (event->event == RDMA_CM_EVENT_CONNECT_ERROR) {
-			DEBUG("Could not connect in %hu. try.", (retries + 1));
+			DEBUG("Could not connect in %zu. try", (retries + 1));
 			rdma_ack_cm_event(event);
 			goto connect;
 		} else if (event->event == RDMA_CM_EVENT_REJECTED) {
-			DEBUG("Remote side rejected connection in %hu. try." (retries + 1));
+			DEBUG("Remote side rejected connection in %zu. try", (retries + 1));
 			rdma_ack_cm_event(event);
 			goto out_cmid;
 		} else if (event->event == RDMA_CM_EVENT_UNREACHABLE) {
-			DEBUG("Remote side is unreachable in &hu. try." (retries + 1));
+			DEBUG("Remote side is unreachable in %zu. try", (retries + 1));
 			rdma_ack_cm_event(event);
 			goto connect;
 		} else {
