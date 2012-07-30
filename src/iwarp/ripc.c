@@ -65,6 +65,7 @@ void netarch_init(void) {
 	int num_contexts	= 0;
 	size_t i;
 	uint8_t j;
+	bool bound;
 
 	context.na.echannel	= rdma_create_event_channel();
 	if (!context.na.echannel)
@@ -75,7 +76,8 @@ void netarch_init(void) {
 
 	context_list		= rdma_get_devices(&num_contexts);
 
-	for (i = 0; i < num_contexts; i++) {
+	bound			= false;
+	for (i = 0; !bound && i < num_contexts; i++) {
 		struct ibv_device *dev		= (*(context_list + i))->device;
 		char *name			= (char*) malloc(sizeof(char) * 16);
 		int sock;
@@ -106,6 +108,8 @@ void netarch_init(void) {
 			DEBUG("Could not bind on device %s", ibv_get_device_name(dev));
 			free(name);
 			continue;
+		} else {
+			bound			= true;
 		}
 
 		context.na.conn_listen_port	= ntohs(rdma_get_src_port(context.na.listen_cm_id));
