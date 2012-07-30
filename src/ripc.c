@@ -51,6 +51,14 @@ uint8_t init() {
 	pthread_mutex_init(&resolver_mutex, NULL);
 
 	conn_mgmt_init();
+	/*
+	 * Those wierd-looking locking-behaviour makes sure that our connection-request-handler
+	 * is established before we answer resolving requests. If we don't do that, it may happen
+	 * that we answer a resolving request before we know the port on which we listen for
+	 * connection requests.
+	 */
+	pthread_mutex_lock(&rdma_connect_mutex);
+	pthread_mutex_unlock(&rdma_connect_mutex);
 
         resolver_init();
 
