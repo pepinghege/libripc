@@ -56,19 +56,25 @@ void *start_responder(void *arg) {
 	listen_addr.sin_family		= AF_INET;
 	listen_addr.sin_addr.s_addr	= INADDR_ANY;
 	listen_addr.sin_port		= htons(RESOLVER_BCAST_PORT);
-	if (bind(sock, (struct sockaddr*) &listen_addr, addr_len) < 0) 
-		panic("Could not bind resolver listening socket");
+	if (bind(sock, (struct sockaddr*) &listen_addr, addr_len) < 0) {
+		DEBUG("Could not bind resolver listening socket");
+		return 0;
+		//panic("Could not bind resolver listening socket");
+	} else
+		DEBUG("Bound to listen to any address.");
 
-	while (0) {
+	while (1) {
 		in_addr_t client_ip;
 		uint16_t client_resolver_port;
 		uint16_t client_rdma_port;
 		memset(&client_addr, 0, addr_len);
-		client_addr.sin_family	= AF_INET;
+		DEBUG("Waiting for resolver request");
 		if (recvfrom(sock, &req, msg_len, 0, (struct sockaddr*) &client_addr, &client_len) < 0) {
 			int err = errno;
 			DEBUG("Error while receiving broadcast message. Code %d (%s).", err, strerror(err));
 			continue;
+		} else {
+			DEBUG("Received resolver message from %x:%u", ntohl(client_addr.sin_addr.s_addr), ntohs(client_addr.sin_port));
 		}
 
 		if (req.type != RIPC_MSG_RESOLVE_REQ) {
@@ -96,9 +102,10 @@ void *start_responder(void *arg) {
 		client_addr.sin_addr.s_addr	= client_ip;
 		client_addr.sin_port		= htons(client_resolver_port);
 
+		DEBUG("Sending resolver reply");
 		if (sendto(sock, &resp, msg_len, 0, (struct sockaddr*) &client_addr, addr_len) < 0) {
 			int err = errno;
-			DEBUG("Could not send resolver response. Code %d (%s).", err, sterror(err));
+			DEBUG("Could not send resolver response. Code %d (%s).", err, strerror(err));
 		}
 
 cache_resolve_data:
@@ -145,24 +152,38 @@ void resolve(uint16_t src, uint16_t dest) {
 	int sock_option;
 	struct remote_context *remote;
 	struct resolver_msg req, resp;
-	struct sockaddr_in bcast_addr, any_addr;
+	struct sockaddr_in bcast_addr, resp_addr, my_addr;
 	size_t msg_len			= sizeof(req);
 	socklen_t addr_len		= sizeof(bcast_addr);
-	socklen_t any_len		= sizeof(any_addr);
 
 	memset(&bcast_addr, 0, addr_len);
 	bcast_addr.sin_family		= AF_INET;
 	bcast_addr.sin_addr.s_addr	= context.na.bcast_ip_addr;
-	bcast_addr.sin_port		= RESOLVER_BCAST_PORT;
+	bcast_addr.sin_port		= htons(RESOLVER_BCAST_PORT);
 
-	memset(&any_addr, 0, addr_len);
-	any_addr.sin_family		= AF_INET;
-	any_addr.sin_addr.s_addr	= INADDR_ANY;
+	memset(&my_addr, 0, addr_len);
+
+	memset(&resp_addr, 0, addr_len);
+	my_addr.sin_family		= AF_INET;
+	my_addr.sin_addr.s_addr		= INADDR_ANY;
 
 	sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	if ((bind(sock, (struct sockaddr*) &any_addr, addr_len) < 0) || !any_addr.sin_port) {
+	if ((bind(sock, (struct sockaddr*) &my_addr, addr_len) < 0)) {
 		int err = errno;
 		panic("Could not bind to broadcast address. Code %d (%s).", err, strerror(err));
+	}
+
+	if ((getsockname(sock, (struct sockaddr*) &my_addr, &addr_len) < 0)) {
+		int err = errno;
+		panic("Could not get the port on which we bound. Code %d (%s)", err, strerror(err));
+	} else {
+		DEBUG("Bound to port %hu", ntohs(my_addr.sin_port));
+	}
+
+	if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, (void *) &sock_option, sizeof(sock_option)) < 0) {
+		int err = errno;
+		pthread_mutex_unlock(&resolver_mutex);
+		panic("Could not set socket to send broadcast messages. Code %d (%s).", err, strerror(err));
 	}
 
 	if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (void*) &timeout, sizeof(timeout)) < 0) {
@@ -175,7 +196,7 @@ void resolve(uint16_t src, uint16_t dest) {
 	req.src_service_id		= src;
 	req.na.ip_addr			= context.na.ip_addr;
 	req.na.conn_port		= context.na.conn_listen_port;
-	req.na.answer_port		= ntohs(any_addr.sin_port);
+	req.na.answer_port		= ntohs(my_addr.sin_port);
 
 	memset(&resp, 0, msg_len);
 
@@ -185,12 +206,7 @@ void resolve(uint16_t src, uint16_t dest) {
 retry:
 	retries++;
 
-	if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST, (void *) &sock_option, sizeof(sock_option)) < 0) {
-		int err = errno;
-		pthread_mutex_unlock(&resolver_mutex);
-		panic("Could not set socket to send broadcast messages. Code %d (%s).", err, strerror(err));
-	}
-
+	DEBUG("Sending resolver message to broadcast-address %x:%u", ntohl(bcast_addr.sin_addr.s_addr), ntohs(bcast_addr.sin_port));
 	if (sendto(sock, &req, msg_len, 0, (struct sockaddr*) &bcast_addr, addr_len) < 0) {
 		int err = errno;
 		pthread_mutex_unlock(&resolver_mutex);
@@ -199,17 +215,19 @@ retry:
 	}
 
 keep_waiting:
-	for (	timeouts = 0;
-		(timeouts < max_timeouts)
-			&& (recvfrom(sock, &resp, msg_len, 0, (struct sockaddr*) &any_addr, &any_len) < 0);
-		/* NOP */) 
-		DEBUG("Hit %d. timeout while waiting for resolver reply.", ++timeouts);
+	for (timeouts = 0; timeouts < max_timeouts; /* NOP */) {
+		DEBUG("Waiting for resolver answer");
+		if (recvfrom(sock, &resp, msg_len, 0, (struct sockaddr*) &resp_addr, &addr_len) < 0) 
+			DEBUG("Hit %zu. timeout while waiting for resolver reply.", ++timeouts);
+		else
+			break;
+	}
 
 	if ((timeouts >= max_timeouts) && (retries < max_retries)) {
 		goto retry;
 	} else if (retries >= max_retries) {
 		pthread_mutex_unlock(&resolver_mutex);
-		DEBUG("No resolver-reply after %d retries.", retries);
+		DEBUG("No resolver-reply after %zu retries.", retries);
 		return;
 	}
 
@@ -219,6 +237,8 @@ keep_waiting:
 		DEBUG("Fetched a wrong message.");
 		goto keep_waiting;
 	}
+	DEBUG(	"Recevied message from service-id %u. Connection data (IP:Port): %x:%u",
+		resp.dest_service_id, ntohl(resp.na.ip_addr), resp.na.conn_port);
 	pthread_mutex_unlock(&resolver_mutex);
 		
 	pthread_mutex_lock(&remotes_mutex);
@@ -227,12 +247,13 @@ keep_waiting:
 		remote = alloc_remote_context();
 	} else if (remote->state != RIPC_RDMA_DISCONNECTED
 			&& remote->na.ip_addr != 0
-			&& remote->na.ip_addr != req.na.ip_addr) {
+			&& remote->na.ip_addr != resp.na.ip_addr) {
 		strip_remote_context(remote);
 	}
-	remote->na.ip_addr		= req.na.ip_addr;
-	remote->na.rdma_listen_port	= req.na.conn_port;
+	remote->na.ip_addr		= resp.na.ip_addr;
+	remote->na.rdma_listen_port	= resp.na.conn_port;
 
 	context.remotes[dest] = remote;
+	DEBUG("Set remote context for service %u", dest);
 	pthread_mutex_unlock(&remotes_mutex);
 }
