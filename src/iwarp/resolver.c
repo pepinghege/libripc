@@ -67,6 +67,7 @@ void *start_responder(void *arg) {
 		in_addr_t client_ip;
 		uint16_t client_resolver_port;
 		uint16_t client_rdma_port;
+		uint16_t client_msg_port;
 		memset(&client_addr, 0, addr_len);
 		DEBUG("Waiting for resolver request");
 		if (recvfrom(sock, &req, msg_len, 0, (struct sockaddr*) &client_addr, &client_len) < 0) {
@@ -92,6 +93,7 @@ void *start_responder(void *arg) {
 			client_resolver_port	= req.na.answer_port;
 		}
 		client_rdma_port		= req.na.conn_port;
+		client_msg_port			= req.na.msg_port;
 
 		if (!context.services[req.dest_service_id])
 			goto cache_resolve_data;
@@ -100,6 +102,7 @@ void *start_responder(void *arg) {
 		//NOTICE: We are using src and dest from the resolve-initiators point of view!
 		resp.dest_service_id		= req.dest_service_id;
 		resp.src_service_id		= req.src_service_id;
+		resp.na.msg_port		= context.services[req.dest_service_id]->na.port;
 		
 		client_addr.sin_addr.s_addr	= client_ip;
 		client_addr.sin_port		= htons(client_resolver_port);
@@ -130,6 +133,7 @@ cache_resolve_data:
 		}
 		remote->na.ip_addr			= client_ip;
 		remote->na.rdma_listen_port		= client_rdma_port;
+		remote->na.msg_port			= client_msg_port;
 
 		context.remotes[req.src_service_id]	= remote;
 		pthread_mutex_unlock(&remotes_mutex);
@@ -201,6 +205,7 @@ void resolve(uint16_t src, uint16_t dest) {
 	req.na.ip_addr			= context.na.ip_addr;
 	req.na.conn_port		= context.na.conn_listen_port;
 	req.na.answer_port		= ntohs(my_addr.sin_port);
+	req.na.msg_port			= context.services[src]->na.port;
 
 	memset(&resp, 0, msg_len);
 
@@ -256,6 +261,7 @@ keep_waiting:
 	}
 	remote->na.ip_addr		= resp.na.ip_addr;
 	remote->na.rdma_listen_port	= resp.na.conn_port;
+	remote->na.msg_port		= resp.na.msg_port;
 
 	context.remotes[dest] = remote;
 	DEBUG("Set remote context for service %u", dest);

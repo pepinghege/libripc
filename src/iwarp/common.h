@@ -28,10 +28,8 @@
 #define	RECV_BUF_SIZE	1024
 
 struct netarch_service_id {
-	bool no_cchannel;
-	struct ibv_cq *send_cq;
-	struct ibv_cq *recv_cq;
-	struct ibv_comp_channel *cchannel;
+	int socket;
+	uint16_t port;
 };
 
 struct netarch_remote_context {
@@ -49,7 +47,6 @@ struct netarch_remote_context {
 struct netarch_library_context {
 	in_addr_t ip_addr;
 	in_addr_t bcast_ip_addr;
-	int msg_socket;
 	pthread_mutex_t socket_mutex;
 	uint16_t conn_listen_port;
 	struct rdma_event_channel *echannel;

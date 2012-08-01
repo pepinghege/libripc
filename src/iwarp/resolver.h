@@ -27,6 +27,7 @@
 struct netarch_resolver_msg {
 	in_addr_t ip_addr;	//IP of the sender
 	uint16_t conn_port;	//Port on which the connection-thread is listening
+	uint16_t msg_port;	//Port on which the receiver is listening
 	//The following member is optional except for resolve requests.
 	uint16_t answer_port;	//Port for resolve-answer
 };
