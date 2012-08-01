@@ -120,12 +120,12 @@ void post_new_recv_buf(struct ibv_qp *qp) {
 	wr->next		= NULL;
 
 	if (ibv_post_recv(qp, wr, &bad_wr)) {
-		ERROR("Failed to post receive item to QP %u!", qp->qp_num);
+		int err = errno;
+		ERROR("Failed to post receive item to QP %u! Code: %d (%s)", qp->qp_num, err, strerror(err));
 	} else {
+		add_cq_to_list(qp->recv_cq);
 		DEBUG("Posted receive buffer at address %lx to QP %u",
                       mem_buf.addr, qp->qp_num);
-
-		add_cq_to_list(qp->recv_cq);
 	}
 }
 

@@ -63,7 +63,7 @@ void *start_responder(void *arg) {
 	} else
 		DEBUG("Bound to listen to any address.");
 
-	while (1) {
+	while (true) {
 		in_addr_t client_ip;
 		uint16_t client_resolver_port;
 		uint16_t client_rdma_port;
@@ -74,7 +74,9 @@ void *start_responder(void *arg) {
 			DEBUG("Error while receiving broadcast message. Code %d (%s).", err, strerror(err));
 			continue;
 		} else {
-			DEBUG("Received resolver message from %x:%u", ntohl(client_addr.sin_addr.s_addr), ntohs(client_addr.sin_port));
+			DEBUG(	"Received resolver message for service %hu from service %hu (%x:%u)", 
+				req.dest_service_id, req.src_service_id,
+				ntohl(client_addr.sin_addr.s_addr), ntohs(client_addr.sin_port));
 		}
 
 		if (req.type != RIPC_MSG_RESOLVE_REQ) {
@@ -112,6 +114,7 @@ cache_resolve_data:
 		pthread_mutex_lock(&remotes_mutex);
 		remote = context.remotes[req.src_service_id];
 		if (!remote) {
+			DEBUG("Allocating remote context");
 			remote = alloc_remote_context();
 		} else if (remote->state != RIPC_RDMA_DISCONNECTED
 				&& remote->na.ip_addr != 0
@@ -122,12 +125,13 @@ cache_resolve_data:
 			 * connection. So we strip the remote context, what in turn will lead to a new connection
 			 * establishment on the new ip.
 			 */
+			DEBUG("Remote service now has a different IP - Stripping remote context.");
 			strip_remote_context(remote);
 		}
-		remote->na.ip_addr		= client_ip;
-		remote->na.rdma_listen_port	= client_rdma_port;
+		remote->na.ip_addr			= client_ip;
+		remote->na.rdma_listen_port		= client_rdma_port;
 
-		context.remotes[req.src_service_id] = remote;
+		context.remotes[req.src_service_id]	= remote;
 		pthread_mutex_unlock(&remotes_mutex);
 	}	
 

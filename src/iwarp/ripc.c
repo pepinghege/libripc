@@ -237,7 +237,7 @@ ripc_send_short(
 
 	for (i = 0; i < num_items; ++i) {
 
-		DEBUG("First message: offset %#x, length %u", offset, length[i]);
+		DEBUG("First message: offset %#x, length %zu", offset, length[i]);
 		msg[i].offset = offset;
 		msg[i].size = length[i];
 
@@ -642,17 +642,33 @@ ripc_receive(
 	cchannel		= NULL;
 	qp			= NULL;
 
-	DEBUG("receive cchannel %p service_id %d", cchannel, service_id);
+	DEBUG("receive called from service_id %d", service_id);
 
 restart:
 	{} //Make the compiler happy.. He doesn't like a declaration of a bool after a label.
 	bool received		= false;
+	DEBUG("Start polling the Completion Queues."); 
+#ifdef HAVE_DEBUG
+	pthread_mutex_lock(&cq_list_mutex);
+	cq_list_t *list_change	= cq_list;
+	DEBUG("Current list:");
+	dump_cq_list();
+	pthread_mutex_unlock(&cq_list_mutex);
+#endif
 	do {
 		pthread_mutex_lock(&cq_list_mutex); //Inside or outside the loop?
 
 		cq_list_t *walk		= cq_list;
+#ifdef HAVE_DEBUG
+		if (walk != list_change) {
+			DEBUG("CQ-list has changed:");
+			dump_cq_list();
+			list_change	= cq_list;
+		}
+#endif
 		while (walk) {
 			if (ibv_poll_cq(walk->cq, 1, &wc) > 0) {
+				DEBUG("Received work completion from CQ %p", walk->cq);
 				received	= true;
 				recv_cq		= walk->cq;
 				cchannel	= recv_cq->channel;
@@ -662,6 +678,7 @@ restart:
 				pthread_mutex_unlock(&cq_list_mutex);
 				del_cq_from_list(recv_cq);
 				pthread_mutex_lock(&cq_list_mutex);
+				DEBUG("Leaving loop");
 				break;
 			} else {
 				if (ibv_get_cq_event(walk->cq->channel, &cq, &ctx) < 0) {
@@ -676,13 +693,19 @@ restart:
 		pthread_mutex_unlock(&cq_list_mutex);
 	} while (!received);
 
+/*
 	ibv_get_cq_event(cchannel, &cq, &ctx);
 
 	ibv_ack_cq_events(recv_cq, 1);
 	ibv_req_notify_cq(recv_cq, 0);
+*/
 
-
+#ifdef HAVE_DEBUG
+	DEBUG("Received work completion with status %s", ibv_wc_status_str(wc.status));
+#endif
 	assert(wc.status == IBV_WC_SUCCESS);
+	if (wc.status != IBV_WC_SUCCESS)
+		return 1;
 
 	DEBUG("received!");
 
@@ -701,37 +724,6 @@ restart:
 
 	DEBUG("Message type is %#x", hdr->type);
 
-	//the next block can cause segmentation faults. Disable it for now until
-	//the error is found.
-#if 0
-	//cache remote address handle if we don't have it already
-	pthread_mutex_lock(&remotes_mutex);
-
-	if (( ! context.remotes[hdr->from]) ||
-			( ! context.remotes[hdr->from]->na.ah)) {
-		DEBUG("Caching remote address handle for remote %u", hdr->from);
-
-		if ( ! context.remotes[hdr->from]) {
-			context.remotes[hdr->from] = malloc(sizeof(struct remote_context));
-			memset(context.remotes[hdr->from], 0, sizeof(struct remote_context));
-		}
-
-		assert(context.remotes[hdr->from]);
-
-		DEBUG("context: %p", &context);
-		DEBUG("context.remotes[hdr->from]: %p", context.remotes[hdr->from]);
-		DEBUG("context.na.pd: %p", context.na.pd);
-		DEBUG("wc: %p", &wc);
-
-		context.remotes[hdr->from]->na.ah =
-				ibv_create_ah_from_wc(context.na.pd, &wc, NULL, 1);
-
-		//not conditional as we assume when the ah needs updating, so does the qp number
-		context.remotes[hdr->from]->qp_num = wc.src_qp;
-	}
-
-	pthread_mutex_unlock(&remotes_mutex);
-#endif
 	struct short_header *msg	= (struct short_header*) (wr->sg_list->addr + sizeof(struct msg_header));
 
 	struct long_desc *long_msg	= (struct long_desc*) (msg + sizeof(struct short_header) * hdr->short_words);
