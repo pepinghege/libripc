@@ -31,6 +31,8 @@ struct netarch_rdma_connect_msg {
 
 void dump_qp_state(struct ibv_qp *qp);
 
+void conn_mgmt_init(void);
+
 void create_rdma_connection(
                uint16_t src,
                uint16_t dest

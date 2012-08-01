@@ -21,7 +21,6 @@
 #include <sys/types.h>
 #include <common.h>
 
-#define RECV_BUF_SIZE 2000
 #define NUM_RECV_BUFFERS 10
 
 #ifdef __cplusplus
