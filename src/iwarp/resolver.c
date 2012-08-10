@@ -246,7 +246,7 @@ keep_waiting:
 		DEBUG("Fetched a wrong message.");
 		goto keep_waiting;
 	}
-	DEBUG(	"Recevied message from service-id %u. Connection data (IP:Port): %x:%u",
+	DEBUG(	"Received message from service-id %u. Connection data (IP:Port): %x:%u",
 		resp.dest_service_id, ntohl(resp.na.ip_addr), resp.na.conn_port);
 	pthread_mutex_unlock(&resolver_mutex);
 		
