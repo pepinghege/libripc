@@ -59,6 +59,7 @@ mem_buf_t ripc_alloc_recv_buf(size_t size) {
 	}
 
 	assert(buf);
+redo:
 	ret.na = ibv_reg_mr(
                 context.na.pd,
                 buf,
@@ -66,6 +67,8 @@ mem_buf_t ripc_alloc_recv_buf(size_t size) {
                 IBV_ACCESS_LOCAL_WRITE |
                 IBV_ACCESS_REMOTE_READ |
                 IBV_ACCESS_REMOTE_WRITE);
+	if (!ret.na)
+		goto redo;
 	DEBUG("mr buffer address is %p, size %zu", ret.na->addr, ret.na->length);
         ret.addr = (uint64_t) ret.na->addr;
         ret.size = ret.na->length;
