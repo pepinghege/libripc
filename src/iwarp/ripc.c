@@ -400,7 +400,215 @@ ripc_send_long(
 
 	DEBUG("Starting long send: %u -> %u (%u items)", src, dest, num_items);
 
-	return 0;
+	if (( ! context.remotes[dest]) ||
+			(context.remotes[dest]->state != RIPC_RDMA_ESTABLISHED)) {
+		create_rdma_connection(src, dest);
+	}
+
+	uint32_t i;
+	int ret, flags;
+	struct sockaddr_in addr;
+	socklen_t addr_len		= sizeof(addr);
+	mem_buf_t mem_buf, return_mem_buf;
+
+	//build packet header
+	mem_buf_t header_mem_buf = ripc_alloc_recv_buf(	sizeof(struct msg_header)
+							+ sizeof(struct long_desc) * num_items
+							+ sizeof(struct long_desc) * num_return_bufs);
+	struct msg_header *hdr			= (struct msg_header*) header_mem_buf.na->addr;
+	struct long_desc *msg			= (struct long_desc*) ((uint64_t) hdr + sizeof(struct msg_header));
+	struct long_desc *return_bufs_msg	= (struct long_desc*) (	(uint64_t) msg
+									+ sizeof(struct long_desc) * num_items);
+
+	hdr->type = RIPC_MSG_SEND;
+	hdr->from = src;
+	hdr->to = dest;
+	hdr->short_words = 0;
+	hdr->long_words = num_items;
+	hdr->new_return_bufs = num_return_bufs;
+
+	memset(&addr, 0, addr_len);
+	addr.sin_family			= AF_INET;
+	pthread_mutex_lock(&remotes_mutex);
+	addr.sin_addr.s_addr		= context.remotes[dest]->na.ip_addr;
+	addr.sin_port			= htons(context.remotes[dest]->na.msg_port);
+	pthread_mutex_unlock(&remotes_mutex);
+
+	for (i = 0; i < num_items; ++i) {
+
+		//make sure send buffers are registered with the hardware
+		mem_buf = used_buf_list_get(buf[i]);
+		void *tmp_buf;
+
+		if (mem_buf.size == -1) { //not registered yet
+			DEBUG("mr not found in cache, creating new one");
+			mem_buf = ripc_alloc_recv_buf(length[i]);
+			tmp_buf = mem_buf.na->addr;
+			memcpy(tmp_buf,buf[i],length[i]);
+		} else {
+			DEBUG("Found mr in cache!");
+			used_buf_list_add(mem_buf);
+			tmp_buf = buf[i];
+		}
+
+		assert(mem_buf.na);
+		//assert(mr->length >= length[i]); //the hardware won't allow it anyway
+
+		msg[i].addr = mem_buf.addr;
+		msg[i].length = length[i];
+		msg[i].rkey = mem_buf.na->rkey;
+
+		DEBUG("Long word %u: addr %lx, length %zu, rkey %#x",
+				i,
+				mem_buf.addr,
+				length[i],
+				mem_buf.na->rkey);
+
+		DEBUG("Message reads: %s", (char *)mem_buf.addr);
+		/*
+		 * Now, check if we have a return buffer available. If so, push the
+		 * contents of the long word to the other side; if not, just send the
+		 * descriptor item and wait for the other side to pull the data.
+		 */
+		retry:
+		return_mem_buf = return_buf_list_get(dest, length[i]);
+		if (return_mem_buf.size == -1) {//no return buffer available
+			DEBUG("Did not find a return buffer for item %u (checked: dest %u, length %zu)",
+					i,
+					dest,
+					length[i]);
+			continue;
+		}
+		DEBUG("Found suitable return buffer: Remote address %lx, size %zu, rkey %#x",
+                      return_mem_buf.addr, return_mem_buf.size, return_mem_buf.na->rkey);
+
+		struct ibv_sge rdma_sge;
+		rdma_sge.addr = msg[i].addr;
+		rdma_sge.length = length[i];
+		rdma_sge.lkey = mem_buf.na->lkey;
+
+		struct ibv_send_wr rdma_wr;
+		rdma_wr.next = NULL;
+		rdma_wr.num_sge = 1;
+		rdma_wr.opcode = IBV_WR_RDMA_WRITE;
+		rdma_wr.send_flags = IBV_SEND_SIGNALED;
+		rdma_wr.sg_list = &rdma_sge;
+		rdma_wr.wr_id = 0xdeadbeef;
+		rdma_wr.wr.rdma.remote_addr = return_mem_buf.addr;
+		rdma_wr.wr.rdma.rkey = return_mem_buf.na->rkey;
+		struct ibv_send_wr *rdma_bad_wr;
+
+		struct ibv_qp *rdma_qp;
+		struct ibv_cq *rdma_cq, *tmp_cq;
+		struct ibv_comp_channel *rdma_cchannel;
+		pthread_mutex_lock(&remotes_mutex);
+		rdma_qp = context.remotes[dest]->na.rdma_qp;
+		rdma_cq = context.remotes[dest]->na.rdma_send_cq;
+		rdma_cchannel = context.remotes[dest]->na.rdma_cchannel;
+		pthread_mutex_unlock(&remotes_mutex);
+
+		ret = ibv_post_send(
+				rdma_qp,
+				&rdma_wr,
+				&rdma_bad_wr);
+		if (ret) {
+			ERROR("Failed to post write to return buffer for message item %u: %s", i, strerror(ret));
+		} else {
+			DEBUG("Posted write to return buffer for message item %u", i);
+		}
+
+		struct ibv_wc rdma_wc;
+		void *ctx; //unused
+
+		do {
+			ibv_get_cq_event(rdma_cchannel,
+			&tmp_cq,
+			&ctx);
+
+			assert(tmp_cq == rdma_cq);
+
+			ibv_ack_cq_events(rdma_cq, 1);
+			ibv_req_notify_cq(rdma_cq, 0);
+
+		} while (!(ibv_poll_cq(rdma_cq, 1, &rdma_wc)));
+
+		DEBUG("received completion message!");
+		if (rdma_wc.status) {
+			ERROR("Send result: %s", ibv_wc_status_str(rdma_wc.status));
+			ERROR("QP state: %d", context.remotes[dest]->na.rdma_qp->state);
+			free(return_mem_buf.na);
+			goto retry; //return buffer was invalid, but maybe the next one will do
+		} else {
+			DEBUG("Result: %s", ibv_wc_status_str(rdma_wc.status));
+			msg[i].transferred = 1;
+			msg[i].addr = return_mem_buf.addr;
+		}
+
+		free(return_mem_buf.na);
+	}
+
+	//process new return buffers
+	for (i = 0; i < num_return_bufs; ++i) {
+		if (return_buf_lengths[i] == 0)
+			continue;
+		DEBUG("Found return buffer: address %p, size %zu",
+				return_bufs[i],
+				return_buf_lengths[i]);
+
+		if (return_bufs[i] == NULL) { //user wants us to allocate a buffer
+			DEBUG("User requested return buffer allocation");
+			mem_buf = ripc_alloc_recv_buf(return_buf_lengths[i]);
+
+		} else {
+			mem_buf = used_buf_list_get(return_bufs[i]);
+
+			if (mem_buf.size == -1) { //not registered, try to register now
+				DEBUG("Return buffer not registered, attempting registration");
+				ripc_buf_register(return_bufs[i], return_buf_lengths[i]);
+				mem_buf = used_buf_list_get(return_bufs[i]);
+				if (mem_buf.size == -1) //registration failed, drop buffer
+					continue;
+				//else
+				DEBUG("Registration successful! rkey is %#x", mem_buf.na->rkey);
+				used_buf_list_add(mem_buf);
+
+			} else { //mr was registered
+				DEBUG("Found mr at address %lx, size %zu, rkey %#x",
+						mem_buf.addr, mem_buf.size, mem_buf.na->rkey);
+				//need to re-add the buffer even if it's too small
+				used_buf_list_add(mem_buf);
+
+				//check if the registered buffer is big enough to hold the return buffer
+				if ((uint64_t)return_bufs[i] + return_buf_lengths[i] >
+						mem_buf.addr + mem_buf.size) {
+					DEBUG("Buffer is too small, skipping");
+					continue; //if it's too small, discard it
+				}
+			}
+		}
+
+		/*
+		 * At this point, we should have an mr, and we should know the buffer
+		 * represented by the mr is big enough for our return buffer.
+		 */
+		assert(mem_buf.na);
+		assert ((uint64_t)return_bufs[i] + return_buf_lengths[i] <= mem_buf.addr + mem_buf.size);
+
+		return_bufs_msg[i].addr = return_bufs[i] ? (uint64_t)return_bufs[i] : mem_buf.addr;
+		return_bufs_msg[i].length = return_buf_lengths[i];
+		return_bufs_msg[i].rkey = mem_buf.na->rkey;
+	}
+
+	//message item done, now send it
+	flags	= 0;
+	ret	= sendto(	context.na.msg_socket, (void*) hdr, header_mem_buf.size,
+				flags, (struct sockaddr*) &addr, addr_len);
+	if (ret)
+		DEBUG("Failed to send UDP-message to service %hu", dest);
+
+	ripc_buf_free(hdr);
+
+	return ret;
 }
 
 uint8_t
