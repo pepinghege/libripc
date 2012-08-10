@@ -221,9 +221,11 @@ redo:
 		recv_item->next			= NULL;
 		if (!service->na.recv_list) {
 			//Empty list
+			DEBUG("Add received buffer to empty receive list");
 			service->na.recv_list	= recv_item;
 		} else {
 			//Append recv item to list
+			DEBUG("Append received buffer to receive list");
 			struct receive_list *walk;
 			for (walk = service->na.recv_list; walk->next != NULL; walk = walk->next) ;
 
@@ -271,17 +273,19 @@ ripc_send_short(
 					+ sizeof(struct long_desc) * num_return_bufs;
 
 	DEBUG("Total data length: %u", total_data_length);
+	DEBUG("Total message length: %u", total_msg_length);
 	if (total_msg_length > RECV_BUF_SIZE) {
 		ERROR("Message length (%u) exceed maximum (%u)", total_msg_length, RECV_BUF_SIZE);
 		return 1;
 	}
 
 	//build packet header
-	struct msg_header *hdr			= (struct msg_header*) malloc(total_msg_length);
+	struct msg_header *hdr			= (struct msg_header*) ripc_alloc_recv_buf(total_msg_length).addr;
 	struct short_header *msg		= (struct short_header*) ((uint64_t) hdr
 						+ sizeof(struct msg_header));
 	struct long_desc *return_bufs_msg	= (struct long_desc*) ((uint64_t) msg
 						+ sizeof(struct short_header) * num_items);
+	DEBUG("hdr: %p, msg: %p, return_bufs_msg: %p", hdr, msg, return_bufs_msg);
 
 
 	hdr->type = RIPC_MSG_SEND;
@@ -299,7 +303,7 @@ ripc_send_short(
 		msg[i].offset			= offset;
 		msg[i].size			= length[i];
 
-		memcpy(hdr + offset, buf[i], msg[i].size);
+		memcpy((uint64_t) hdr + (uint64_t) offset, buf[i], msg[i].size);
 
 		offset += length[i]; //offset of next message item
 	}
@@ -376,15 +380,18 @@ ripc_send_short(
 
 
 	flags	= 0;
-	pthread_mutex_lock(&services_mutex);
 	ret	= sendto(	context.na.msg_socket, (void*) hdr, total_msg_length, 
 				flags, (struct sockaddr*) &addr, addr_len);
-	pthread_mutex_unlock(&services_mutex);
+	if (ret < 0)
+		DEBUG("Experienced an error while sending short message to service %hu", dest);
+	else
+		DEBUG("Send a total of %d bytes to service %hu", ret, dest);
 
-	free(hdr);
+	DEBUG("Now freeing hdr");
+	ripc_buf_free(hdr);
+	DEBUG("Done");
 
-	//return wc.status;
-	return ret;
+	return 0;
 }
 
 uint8_t
@@ -603,12 +610,12 @@ ripc_send_long(
 	flags	= 0;
 	ret	= sendto(	context.na.msg_socket, (void*) hdr, header_mem_buf.size,
 				flags, (struct sockaddr*) &addr, addr_len);
-	if (ret)
+	if (ret < 0)
 		DEBUG("Failed to send UDP-message to service %hu", dest);
 
 	ripc_buf_free(hdr);
 
-	return ret;
+	return 0;
 }
 
 uint8_t
@@ -666,13 +673,13 @@ restart:
 
 	DEBUG("Message type is %#x", hdr->type);
 
-	struct short_header *msg	= (struct short_header*) (hdr
+	struct short_header *msg	= (struct short_header*) ((uint64_t) hdr
 					+ sizeof(struct msg_header));
 
-	struct long_desc *long_msg	= (struct long_desc*) (msg
+	struct long_desc *long_msg	= (struct long_desc*) ((uint64_t) msg
 					+ sizeof(struct short_header) * hdr->short_words);
 
-	struct long_desc *return_bufs	= (struct long_desc*) (long_msg
+	struct long_desc *return_bufs	= (struct long_desc*) ((uint64_t) long_msg
 					+ sizeof(struct long_desc) * hdr->long_words);
 
 	if (hdr->short_words) {
@@ -686,9 +693,8 @@ restart:
 	}
 
 	for (i = 0; i < hdr->short_words; ++i) {
-		(*short_items)[i] = (void *)(hdr + msg[i].offset);
+		(*short_items)[i] = (void *)((uint64_t) hdr + (uint64_t) msg[i].offset);
 		(*short_item_sizes)[i] = msg[i].size;
-		DEBUG("Short word %u reads:\n%s", i, (char *) (*short_items)[i]);
 	}
 
 	if (hdr->long_words) {
@@ -713,7 +719,7 @@ restart:
 			DEBUG("Sender used return buffer at address %lx",
 					long_msg[i].addr);
 			(*long_items)[i] = (void *)long_msg[i].addr;
-			(*long_item_sizes)[i] = long_msg[i].length;
+			(*long_item_sizes)[i] = (uint32_t) long_msg[i].length;
 			continue;
 		}
 
@@ -769,6 +775,7 @@ restart:
 		struct ibv_wc rdma_wc;
 
 		do {
+#if(0)
 			ibv_get_cq_event(rdma_cchannel,
 			&tmp_cq,
 			&ctx);
@@ -783,6 +790,7 @@ restart:
 
 			ibv_ack_cq_events(rdma_cq, 1);
 			ibv_req_notify_cq(rdma_cq, 0);
+#endif
 
 		} while (!(ibv_poll_cq(rdma_cq, 1, &rdma_wc)));
 
