@@ -72,14 +72,19 @@ int main(void) {
 				&long_sizes,
 				&num_long);
 
-		DEBUG("Received message: %d\n", *(int *)long_items[0]);
+		DEBUG("Received message: %s\n", (char*) long_items[0]);
 		//printf("pingpong %d\n", ++count);
+		size_t *sizes = (size_t*) malloc(num_long);
+		uint16_t k;
+		for (k = 0; k < num_long; k++) {
+			sizes[k] = (size_t) long_sizes[k];
+		}
 
 		ripc_send_long(
 				SERVER_SERVICE_ID,
 				from,
 				long_items,
-				(size_t *)long_sizes,
+				sizes,
 				num_long,
 				return_buf_array,
 				return_buf_length_array,

@@ -70,8 +70,13 @@ int main(int argc, char *argv[]) {
 	printf("Starting loop\n");
 
 	for (i = 0; i < NUM_ROUNDS; ++i) {
+//	for (i = 0; i < 10; ++i) {
 
+/*
 		*(int *)msg_array[0] = i;
+		DEBUG("Sending message: %u", *(int *)msg_array[0]);
+*/
+		strcpy((char*) msg_array[0], "All that is gold does not glitter!");
 
 		if (ripc_send_short(
 				my_service_id,
@@ -95,7 +100,7 @@ int main(int argc, char *argv[]) {
 				&num_long);
 
 		//printf("Received item\n");
-		DEBUG("Message reads: %u\n", *(int *)short_items[0]);
+		DEBUG("Message reads: %s\n", (char*) short_items[0]);
 		recvd++;
 
 		/*

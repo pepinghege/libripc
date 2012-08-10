@@ -71,7 +71,8 @@ int main(int argc, char *argv[]) {
 
 	printf("Starting loop\n");
 
-	for (i = 0; i < NUM_ROUNDS; ++i) {
+//	for (i = 0; i < NUM_ROUNDS; ++i) {
+	for (i = 0; i < 5; ++i) {
 		if (ripc_send_long(
 				my_service_id,
 				SERVER_SERVICE_ID,
@@ -107,6 +108,8 @@ int main(int argc, char *argv[]) {
 	before_usec = before.tv_sec * 1000000 + before.tv_usec;
 	after_usec = after.tv_sec * 1000000 + after.tv_usec;
 	diff = after_usec - before_usec;
+
+	sleep(5);
 
 	printf("Exchanged %d items in %lu usec (rtt %f usec)\n", recvd, diff, (double)diff / NUM_ROUNDS);
 	//printf("%f\n",(double)diff / NUM_ROUNDS);

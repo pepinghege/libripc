@@ -65,7 +65,7 @@ int main(void) {
 		if (ret)
                         printf("Failed receiving message: %d\n", ret);
                 else
-                        DEBUG("Received message: %d\n", *(int *)short_items[0]);
+                        DEBUG("Received message: %s\n", (char*) short_items[0]);
 		//printf("pingpong %d\n", ++count);
 
 		ripc_send_short(
