@@ -326,7 +326,6 @@ void *start_conn_manager(void *arg) {
 #ifdef HAVE_DEBUG
 				dump_remote_context(remote);
 #endif
-				post_new_recv_buf(remote->na.rdma_qp);
 				break;
 			default:
 				/*
@@ -751,7 +750,6 @@ connect:
 #ifdef HAVE_DEBUG
 	dump_remote_context(remote);
 #endif
-	post_new_recv_buf(remote->na.rdma_qp);
 	pthread_mutex_unlock(&remotes_mutex);
 
 	rdma_destroy_event_channel(echannel);
@@ -855,24 +853,5 @@ void dump_cq_list() {
 }
 
 void alloc_queue_state(struct service_id *service) {
-	struct sockaddr_in addr;
-	socklen_t len			= sizeof(addr);
-	memset(&addr, 0, len);
-	addr.sin_family			= AF_INET;
-	addr.sin_addr.s_addr		= context.na.ip_addr;
-
-	service->na.socket		= socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	if (bind(service->na.socket, (struct sockaddr*) &addr, len) < 0) {
-		DEBUG("Could not bind to IP-address for service %hu", service->number);
-		service->na.port	= 0;
-		return;
-	}
-
-	if (getsockname(service->na.socket, (struct sockaddr*) &addr, &len) < 0) {
-		DEBUG("Could not retrieve the port of the socket of service %hu", service->number);
-		service->na.port	= 0;
-	} else {
-		service->na.port	= ntohs(addr.sin_port);
-		DEBUG("Bound service %hu to port %hu", service->number, service->na.port);
-	}
+	service->na.recv_list	= NULL;
 }

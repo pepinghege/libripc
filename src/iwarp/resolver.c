@@ -102,7 +102,7 @@ void *start_responder(void *arg) {
 		//NOTICE: We are using src and dest from the resolve-initiators point of view!
 		resp.dest_service_id		= req.dest_service_id;
 		resp.src_service_id		= req.src_service_id;
-		resp.na.msg_port		= context.services[req.dest_service_id]->na.port;
+		resp.na.msg_port		= context.na.msg_listen_port;
 		
 		client_addr.sin_addr.s_addr	= client_ip;
 		client_addr.sin_port		= htons(client_resolver_port);
@@ -205,7 +205,7 @@ void resolve(uint16_t src, uint16_t dest) {
 	req.na.ip_addr			= context.na.ip_addr;
 	req.na.conn_port		= context.na.conn_listen_port;
 	req.na.answer_port		= ntohs(my_addr.sin_port);
-	req.na.msg_port			= context.services[src]->na.port;
+	req.na.msg_port			= context.na.msg_listen_port;
 
 	memset(&resp, 0, msg_len);
 

@@ -100,31 +100,3 @@ uint8_t ripc_buf_register(void *buf, size_t size) {
 	return mem_buf.na ? 0 : 1;
 }
 
-
-void post_new_recv_buf(struct ibv_qp *qp) {
-	struct ibv_sge *list;
-	struct ibv_recv_wr *wr, *bad_wr;
-	uint32_t i;
-
-        mem_buf_t mem_buf	= ripc_alloc_recv_buf(RECV_BUF_SIZE);
-
-	list			= malloc(sizeof(struct ibv_sge));
-	list->addr		= mem_buf.addr;
-	list->length		= mem_buf.size;
-	list->lkey		= mem_buf.na->lkey;
-
-	wr			= malloc(sizeof(struct ibv_recv_wr));
-	wr->wr_id		= (uint64_t)wr;
-	wr->sg_list		= list;
-	wr->num_sge		= 1;
-	wr->next		= NULL;
-
-	if (ibv_post_recv(qp, wr, &bad_wr)) {
-		int err = errno;
-		ERROR("Failed to post receive item to QP %u! Code: %d (%s)", qp->qp_num, err, strerror(err));
-	} else {
-		DEBUG(	"Posted receive buffer at address %lx to QP %u",
-			mem_buf.addr, qp->qp_num);
-	}
-}
-
