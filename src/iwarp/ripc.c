@@ -131,24 +131,6 @@ void netarch_init(void) {
 		break;
 	}
 
-	context.na.msg_socket			= socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	memset(&sock_addr, 0, addr_len);
-	if (bind(context.na.msg_socket, (struct sockaddr*) &sock_addr, addr_len) < 0) {
-		panic("Could not bind to IP-address on socket for short and control-messages");
-		context.na.msg_listen_port	= 0;
-		return;
-	}
-
-	if (getsockname(context.na.msg_socket, (struct sockaddr*) &sock_addr, &addr_len) < 0) {
-		panic("Could not retrieve the port of the socket for short and control-messages");
-		context.na.msg_listen_port	= 0;
-	} else {
-		context.na.msg_listen_port	= ntohs(sock_addr.sin_port);
-		DEBUG("Bound to port %hu for short and control-messages", context.na.msg_listen_port);
-	}
-
-	pthread_create(&msg_receiver_thread, NULL, &start_receiver, NULL);
-
 	if (!num_contexts)
 		panic("Did not find any devices.");
 	else if (i == num_contexts)
@@ -172,6 +154,24 @@ void netarch_init(void) {
 			break;
 		}
 	}
+
+	context.na.msg_socket			= socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	memset(&sock_addr, 0, addr_len);
+	if (bind(context.na.msg_socket, (struct sockaddr*) &sock_addr, addr_len) < 0) {
+		panic("Could not bind to IP-address on socket for short and control-messages");
+		context.na.msg_listen_port	= 0;
+		return;
+	}
+
+	if (getsockname(context.na.msg_socket, (struct sockaddr*) &sock_addr, &addr_len) < 0) {
+		panic("Could not retrieve the port of the socket for short and control-messages");
+		context.na.msg_listen_port	= 0;
+	} else {
+		context.na.msg_listen_port	= ntohs(sock_addr.sin_port);
+		DEBUG("Bound to port %hu for short and control-messages", context.na.msg_listen_port);
+	}
+
+	pthread_create(&msg_receiver_thread, NULL, &start_receiver, NULL);
 
 	context.initialized	= true;
 }
@@ -667,6 +667,7 @@ restart:
 	pthread_mutex_unlock(&services_mutex);
 
 	if ((hdr->type != RIPC_MSG_SEND) || (hdr->to != service_id)) {
+		ripc_buf_free(hdr);
 		ERROR("Spurious message, restarting");
 		goto restart;
 	}
