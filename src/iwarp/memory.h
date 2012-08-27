@@ -25,4 +25,6 @@ typedef struct ibv_mr *netarch_mem_buf_t;
 
 #define INVALID_NETARCH_MEM_BUF NULL
 
+void post_new_recv_buf(struct ibv_qp *qp);
+
 #endif /* !__IWARP__MEMORY_H__ */

@@ -296,9 +296,14 @@ void *start_conn_manager(void *arg) {
 			DEBUG("Received disconnection-event.");
 			/*
 			 * This event is received when a) we or b) our communication partner called rdma_disconnect
-			 * on a connection. 
-			 * As disconnection aren't handled in libRIPC we do not handle this event yet.
+			 * on a connection or if the process stopped execution. 
 			 */
+			struct rdma_cm_id *conn_id	= event->id;
+			struct remote_context *remote	= (struct remote_context*) conn_id->context;
+
+			pthread_mutex_lock(&remotes_mutex);
+			strip_remote_context(remote);
+			pthread_mutex_unlock(&remotes_mutex);
 			break;
 		case (RDMA_CM_EVENT_ESTABLISHED): {
 			DEBUG("Received establishment confirmation.");
@@ -322,10 +327,11 @@ void *start_conn_manager(void *arg) {
 				DEBUG("Received connection establishment on a remote we are already connected with.");
 				break;
 			case RIPC_RDMA_CONNECTING:
-				remote->state = RIPC_RDMA_ESTABLISHED;
 #ifdef HAVE_DEBUG
 				dump_remote_context(remote);
 #endif
+				post_new_recv_buf(remote->na.rdma_qp);
+				remote->state = RIPC_RDMA_ESTABLISHED;
 				break;
 			default:
 				/*
@@ -382,9 +388,9 @@ void strip_remote_context(struct remote_context *remote) {
 }
 
 void prepare_qp_init_attr(struct ibv_qp_init_attr *init_attr, struct remote_context *remote) {
-	memset(init_attr, 0, sizeof(*init_attr));
 	init_attr->send_cq		= remote->na.rdma_send_cq;
 	init_attr->recv_cq		= remote->na.rdma_recv_cq;
+	init_attr->srq			= NULL;
 	//TODO:	Think those numbers through
 	init_attr->cap.max_send_wr	= 1000;
 	init_attr->cap.max_recv_wr	= 1000;
@@ -750,6 +756,7 @@ connect:
 #ifdef HAVE_DEBUG
 	dump_remote_context(remote);
 #endif
+	post_new_recv_buf(remote->na.rdma_qp);
 	pthread_mutex_unlock(&remotes_mutex);
 
 	rdma_destroy_event_channel(echannel);
@@ -835,6 +842,7 @@ void dump_remote_context(struct remote_context* remote) {
 	DEBUG("Queue Pair: %p (QP-Num: %u)", remote->na.rdma_qp, remote->na.rdma_qp->qp_num);
 	DEBUG("Send CQ: %p", remote->na.rdma_send_cq);
 	DEBUG("Receive CQ: %p", remote->na.rdma_recv_cq);
+	DEBUG("Shared CQ: %p", remote->na.rdma_qp->srq);
 	DEBUG("Completion Channel: %p", remote->na.rdma_cchannel);
 }
 

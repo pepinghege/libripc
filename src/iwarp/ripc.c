@@ -19,7 +19,6 @@
 #include <string.h>
 #include <pthread.h>
 #include <errno.h>
-#include <inttypes.h>
 #include <rdma/rdma_cma.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -37,7 +36,8 @@
 struct library_context context;
 
 pthread_t msg_receiver_thread;
-pthread_mutex_t services_mutex, remotes_mutex;
+pthread_cond_t receiving_cond;
+pthread_mutex_t services_mutex, remotes_mutex, receive_mutex;
 
 uint8_t strip_subnetarch_prefix(const char *src, char *dest) {
 	size_t i = SUBNETARCH_PREFIX_LEN;
@@ -56,16 +56,14 @@ uint8_t strip_subnetarch_prefix(const char *src, char *dest) {
 }
 
 void netarch_init(void) {
-	DEBUG("netarch_init");
+        DEBUG("netarch_init");
 
-#define	SIOCGIFADDR	0x8915
-#define SIOCGIFBRDADDR	0x8919
+	#define	SIOCGIFADDR	0x8915
+	#define SIOCGIFBRDADDR	0x8919
 
 	struct ibv_device_attr device_attr;
 	struct ibv_port_attr port_attr;
 	struct ibv_context **context_list;
-	struct sockaddr_in sock_addr;
-	socklen_t addr_len	= sizeof(sock_addr);
 	int num_contexts	= 0;
 	size_t i;
 	uint8_t j;
@@ -90,7 +88,7 @@ void netarch_init(void) {
 
 		strip_subnetarch_prefix(ibv_get_device_name(dev), name);
 		DEBUG("Found device: %s (prefix-stripped: %s)", ibv_get_device_name(dev), name);
-
+		
 		//Retrieve IP-address of the device
 		sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 		memset(&dev_if, 0, sizeof(dev_if));
@@ -127,8 +125,6 @@ void netarch_init(void) {
 		context.na.bcast_ip_addr	= dev_addr->sin_addr.s_addr;
 
 		free(name);
-
-		break;
 	}
 
 	if (!num_contexts)
@@ -155,53 +151,80 @@ void netarch_init(void) {
 		}
 	}
 
-	context.na.msg_socket			= socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-	memset(&sock_addr, 0, addr_len);
-	if (bind(context.na.msg_socket, (struct sockaddr*) &sock_addr, addr_len) < 0) {
-		panic("Could not bind to IP-address on socket for short and control-messages");
-		context.na.msg_listen_port	= 0;
-		return;
-	}
-
-	if (getsockname(context.na.msg_socket, (struct sockaddr*) &sock_addr, &addr_len) < 0) {
-		panic("Could not retrieve the port of the socket for short and control-messages");
-		context.na.msg_listen_port	= 0;
-	} else {
-		context.na.msg_listen_port	= ntohs(sock_addr.sin_port);
-		DEBUG("Bound to port %hu for short and control-messages", context.na.msg_listen_port);
-	}
-
+	pthread_mutex_init(&receive_mutex, NULL);
+	pthread_cond_init(&receiving_cond, NULL);
+	pthread_mutex_lock(&receive_mutex); //Unlocked in the msg_receiver_thread
 	pthread_create(&msg_receiver_thread, NULL, &start_receiver, NULL);
 
 	context.initialized	= true;
 }
 
 void *start_receiver(void *arg) {
-	struct sockaddr_in any_addr;
-	socklen_t addr_len;
-	mem_buf_t mem_buf;
-	int flags			= 0;
+	DEBUG("Starting receiver thread.");
 
-	do {
+	while (true) {
+		//Wait until ripc_receive is called
+		pthread_cond_wait(&receiving_cond, &receive_mutex);
+		DEBUG("Woke up");
+
+		struct ibv_wc wc;
+		struct ibv_recv_wr *wr;
 		struct msg_header *hdr;
 		struct service_id *service;
 		struct receive_list *recv_item;
-
-		memset(&any_addr, 0, addr_len);
-		any_addr.sin_family		= AF_INET;
-		any_addr.sin_addr.s_addr	= INADDR_ANY;
-		addr_len			= sizeof(any_addr);
-
-		mem_buf				= ripc_alloc_recv_buf(RECV_BUF_SIZE);
+		struct ibv_cq *recv_cq;
+		struct ibv_qp *qp;
+		cq_list_t *walk, *has_changed;
+		bool received;
 
 redo:
-		if (recvfrom(	context.na.msg_socket, (void*) mem_buf.addr, RECV_BUF_SIZE, flags,
-				(struct sockaddr*) &any_addr, &addr_len) < 0) {
-			DEBUG("Experienced an error while receiving on the message socket.");
+		pthread_mutex_lock(&cq_list_mutex);
+		has_changed	= cq_list;
+		pthread_mutex_unlock(&cq_list_mutex);
+		DEBUG("Polling the registered Completion Queues.");
+		received	= false;
+		do {
+			pthread_mutex_lock(&cq_list_mutex);
+
+			walk		= cq_list;
+
+			if (walk != has_changed) {
+				DEBUG("CQ-List was changed!");
+				has_changed	= walk;
+			}
+
+			while (walk) {
+				if (ibv_poll_cq(walk->cq, 1, &wc) > 0) {
+					DEBUG("Received work completion from CQ %p", walk->cq);
+					received        = true;
+					recv_cq         = walk->cq;
+					//					cchannel        = recv_cq->channel;
+					pthread_mutex_lock(&remotes_mutex);
+					qp              = ((struct remote_context*) recv_cq->cq_context)->na.rdma_qp;
+					pthread_mutex_unlock(&remotes_mutex);
+					pthread_mutex_unlock(&cq_list_mutex);
+					del_cq_from_list(recv_cq);
+					post_new_recv_buf(qp);
+					DEBUG("Leaving loop");
+					break;
+				}
+
+				walk	= walk->next;
+			}
+			pthread_mutex_unlock(&cq_list_mutex);
+		} while (!received);
+
+#ifdef HAVE_DEBUG
+		DEBUG("Received work completion with status %s", ibv_wc_status_str(wc.status));
+#endif
+		if (wc.status != IBV_WC_SUCCESS) {
+			DEBUG("Unsuccessful Work Completion on CQ %p", recv_cq);
 			goto redo;
 		}
 
-		hdr	= (struct msg_header*) mem_buf.addr;
+		wr	= (struct ibv_recv_wr*) (wc.wr_id);
+		hdr	= (struct msg_header*) (wr->sg_list->addr);
+
 		if (hdr->type != RIPC_MSG_SEND) {
 			DEBUG("Received data which is not a send-message.");
 			goto redo;
@@ -216,26 +239,30 @@ redo:
 		DEBUG("Received message from %hu to %hu", hdr->from, hdr->to);
 		service = context.services[hdr->to];
 
-		recv_item			= (struct receive_list*) malloc(sizeof(struct receive_list));
-		recv_item->buffer		= (void*) mem_buf.addr;
-		recv_item->next			= NULL;
+		recv_item                       = (struct receive_list*) malloc(sizeof(struct receive_list));
+		recv_item->buffer               = (void*) hdr;
+		recv_item->next                 = NULL;
 		if (!service->na.recv_list) {
 			//Empty list
 			DEBUG("Add received buffer to empty receive list");
-			service->na.recv_list	= recv_item;
+			service->na.recv_list   = recv_item;
 		} else {
 			//Append recv item to list
 			DEBUG("Append received buffer to receive list");
 			struct receive_list *walk;
 			for (walk = service->na.recv_list; walk->next != NULL; walk = walk->next) ;
 
-			walk->next		= recv_item;
+			walk->next              = recv_item;
 		}
 
 		pthread_mutex_unlock(&services_mutex);
-	} while(true);
-}
+		free(wr->sg_list);
+		free(wr);
+		pthread_cond_signal(&receiving_cond);
 
+	}
+
+}
 
 uint8_t
 ripc_send_short(
@@ -248,24 +275,24 @@ ripc_send_short(
 		size_t *return_buf_lengths,
 		uint32_t num_return_bufs) {
 
-	DEBUG("Starting short send: %u -> %u (%u items)", src, dest, num_items);
-
-	assert(context.services[src]);
-	if (!context.remotes[dest])
-		resolve(src, dest);
-	assert(context.remotes[dest]);
-
 	uint32_t i;
-	int ret, flags;
 	uint32_t total_data_length	= 0;
 	uint32_t total_msg_length	= 0;
-	struct sockaddr_in addr;
-	socklen_t addr_len		= sizeof(addr);
-
-	mem_buf_t mem_buf;
+        mem_buf_t mem_buf;
         
+	pthread_mutex_lock(&remotes_mutex);
+	if (!context.remotes[dest]
+		|| (context.remotes[dest]->state != RIPC_RDMA_ESTABLISHED)) {
+		pthread_mutex_unlock(&remotes_mutex);
+		create_rdma_connection(src, dest);
+		pthread_mutex_lock(&remotes_mutex);
+	}
+	assert(context.remotes[dest] 
+		&& (context.remotes[dest]->state == RIPC_RDMA_ESTABLISHED));
+	pthread_mutex_unlock(&remotes_mutex);
+
 	for (i = 0; i < num_items; ++i)
-		total_data_length	+= length[i];
+		total_data_length += length[i];
 
 	total_msg_length		= total_data_length
 					+ sizeof(struct msg_header)
@@ -280,12 +307,12 @@ ripc_send_short(
 	}
 
 	//build packet header
-	struct msg_header *hdr			= (struct msg_header*) ripc_alloc_recv_buf(total_msg_length).addr;
-	struct short_header *msg		= (struct short_header*) ((uint64_t) hdr
-						+ sizeof(struct msg_header));
-	struct long_desc *return_bufs_msg	= (struct long_desc*) ((uint64_t) msg
-						+ sizeof(struct short_header) * num_items);
-	DEBUG("hdr: %p, msg: %p, return_bufs_msg: %p", hdr, msg, return_bufs_msg);
+	struct ibv_mr *header_mr		= ripc_alloc_recv_buf(total_msg_length - total_data_length).na;
+	struct msg_header *hdr			= (struct msg_header*) header_mr->addr;
+	struct short_header *msg		= (struct short_header*) (	(uint64_t) hdr
+									+ sizeof(struct msg_header));
+	struct long_desc *return_bufs_msg	= (struct long_desc*) (	(uint64_t) msg
+									+ sizeof(struct short_header) * num_items);
 
 
 	hdr->type = RIPC_MSG_SEND;
@@ -295,17 +322,44 @@ ripc_send_short(
 	hdr->long_words = 0;
 	hdr->new_return_bufs = num_return_bufs;
 
-	uint32_t offset				= total_msg_length - total_data_length;
+	struct ibv_sge sge[num_items + 1]; //+1 for header
+	sge[0].addr	= (uint64_t)header_mr->addr;
+	sge[0].length	= sizeof(struct msg_header)
+			+ sizeof(struct short_header) * num_items
+			+ sizeof(struct long_desc) * num_return_bufs;
+	sge[0].lkey	= header_mr->lkey;
+
+	uint32_t offset	= total_msg_length - total_data_length;
 
 	for (i = 0; i < num_items; ++i) {
 
 		DEBUG("First message: offset %#x, length %zu", offset, length[i]);
-		msg[i].offset			= offset;
-		msg[i].size			= length[i];
-
-		memcpy((uint64_t) hdr + (uint64_t) offset, buf[i], msg[i].size);
+		msg[i].offset = offset;
+		msg[i].size = length[i];
 
 		offset += length[i]; //offset of next message item
+
+		//make sure send buffers are registered with the hardware
+                mem_buf_t mem_buf = used_buf_list_get(buf[i]);
+		void *tmp_buf;
+
+		if (mem_buf.size == -1) { //not registered yet
+			DEBUG("mr not found in cache, creating new one");
+			mem_buf = ripc_alloc_recv_buf(length[i]);
+			tmp_buf = mem_buf.na->addr;
+			memcpy(tmp_buf,buf[i],length[i]);
+		} else {
+			DEBUG("Found mr in cache!");
+                        used_buf_list_add(mem_buf);
+			tmp_buf = buf[i];
+		}
+
+		assert(mem_buf.na);
+		//assert(mr->length >= length[i]); //the hardware won't allow it anyway
+
+		sge[i + 1].addr		= (uint64_t)tmp_buf;
+		sge[i + 1].length	= length[i];
+		sge[i + 1].lkey		= mem_buf.na->lkey;
 	}
 
 	//process new return buffers
@@ -363,35 +417,57 @@ ripc_send_short(
 		return_bufs_msg[i].rkey = mem_buf.na->rkey;
 	}
 
-	memset(&addr, 0, addr_len);
-	addr.sin_family		= AF_INET;
-	pthread_mutex_lock(&remotes_mutex);
-	addr.sin_addr.s_addr	= context.remotes[dest]->na.ip_addr;
-	addr.sin_port		= htons(context.remotes[dest]->na.msg_port);
-	pthread_mutex_unlock(&remotes_mutex);
+	struct ibv_send_wr wr;
+	wr.next = NULL;
+	wr.opcode = IBV_WR_SEND;
+	wr.num_sge = num_items + 1;
+	wr.sg_list = sge;
+	wr.wr_id = 0xdeadbeef; //TODO: Make this a counter?
+	wr.send_flags = IBV_SEND_SIGNALED;
 
-	DEBUG(	"Sending message containing %u items to service %u, %x:%u",
-		num_items + 1, dest, addr.sin_addr.s_addr, ntohs(addr.sin_port));
+	DEBUG("Sending message containing %u items to service %u", wr.num_sge, dest);
 #ifdef HAVE_DEBUG
-	for (i = 0; i < num_items; ++i) {
-		DEBUG("Item %u: address: %x, length %u", i, msg[i].offset, msg[i].size);
+	for (i = 0; i < wr.num_sge; ++i) {
+		ERROR("Item %u: address: %lx, length %u",
+			i,
+			wr.sg_list[i].addr,
+			wr.sg_list[i].length);
 	}
 #endif
 
+	struct ibv_send_wr *bad_wr = NULL;
 
-	flags	= 0;
-	ret	= sendto(	context.na.msg_socket, (void*) hdr, total_msg_length, 
-				flags, (struct sockaddr*) &addr, addr_len);
-	if (ret < 0)
-		DEBUG("Experienced an error while sending short message to service %hu", dest);
-	else
-		DEBUG("Send a total of %d bytes to service %hu", ret, dest);
+	pthread_mutex_lock(&remotes_mutex);
+	struct ibv_qp *dest_qp = context.remotes[dest]->na.rdma_qp;
+	struct ibv_cq *dest_cq = context.remotes[dest]->na.rdma_send_cq;
+	pthread_mutex_unlock(&remotes_mutex);
 
-	DEBUG("Now freeing hdr");
+	int ret = ibv_post_send(dest_qp, &wr, &bad_wr);
+
+	if (bad_wr) {
+		ERROR("Failed to post send: ", strerror(ret));
+		return ret;
+	} else {
+		DEBUG("Successfully posted send!");
+	}
+
+
+//#ifdef HAVE_DEBUG
+	struct ibv_wc wc;
+	while (ibv_poll_cq(dest_cq, 1, &wc) <= 0); //polling is probably faster here
+
+	DEBUG("received completion message!");
+	if (wc.status) {
+		ERROR("Send result: %s", ibv_wc_status_str(wc.status));
+		ERROR("QP state: %d", dest_qp->state);
+	}
+	DEBUG("Result: %s", ibv_wc_status_str(wc.status));
+//#endif
+
 	ripc_buf_free(hdr);
-	DEBUG("Done");
 
-	return 0;
+	//return wc.status;
+	return ret;
 }
 
 uint8_t
@@ -407,39 +483,43 @@ ripc_send_long(
 
 	DEBUG("Starting long send: %u -> %u (%u items)", src, dest, num_items);
 
-	if (( ! context.remotes[dest]) ||
-			(context.remotes[dest]->state != RIPC_RDMA_ESTABLISHED)) {
+	if ((!context.remotes[dest])
+		|| (context.remotes[dest]->state != RIPC_RDMA_ESTABLISHED)) {
 		create_rdma_connection(src, dest);
 	}
 
+	pthread_mutex_lock(&remotes_mutex);
+	struct ibv_qp *dest_qp			= context.remotes[dest]->na.rdma_qp;
+	struct ibv_cq *dest_cq			= context.remotes[dest]->na.rdma_send_cq;
+	struct ibv_comp_channel *dest_cchannel	= context.remotes[dest]->na.rdma_cchannel;
+	pthread_mutex_unlock(&remotes_mutex);
+
 	uint32_t i;
-	int ret, flags;
-	struct sockaddr_in addr;
-	socklen_t addr_len		= sizeof(addr);
+	int ret;
 	mem_buf_t mem_buf, return_mem_buf;
 
 	//build packet header
-	mem_buf_t header_mem_buf = ripc_alloc_recv_buf(	sizeof(struct msg_header)
-							+ sizeof(struct long_desc) * num_items
-							+ sizeof(struct long_desc) * num_return_bufs);
-	struct msg_header *hdr			= (struct msg_header*) header_mem_buf.na->addr;
-	struct long_desc *msg			= (struct long_desc*) ((uint64_t) hdr + sizeof(struct msg_header));
-	struct long_desc *return_bufs_msg	= (struct long_desc*) (	(uint64_t) msg
+	mem_buf_t header_mem_buf		= ripc_alloc_recv_buf(	sizeof(struct msg_header)
+									+ sizeof(struct long_desc) * num_items
+									+ sizeof(struct long_desc) * num_return_bufs);
+	struct msg_header *hdr			= (struct msg_header*)header_mem_buf.na->addr;
+	struct long_desc *msg			= (struct long_desc *)((uint64_t)hdr + sizeof(struct msg_header));
+	struct long_desc *return_bufs_msg	= (struct long_desc *)(	(uint64_t)msg
 									+ sizeof(struct long_desc) * num_items);
 
-	hdr->type = RIPC_MSG_SEND;
-	hdr->from = src;
-	hdr->to = dest;
-	hdr->short_words = 0;
-	hdr->long_words = num_items;
-	hdr->new_return_bufs = num_return_bufs;
+	hdr->type		= RIPC_MSG_SEND;
+	hdr->from		= src;
+	hdr->to			= dest;
+	hdr->short_words	= 0;
+	hdr->long_words		= num_items;
+	hdr->new_return_bufs	= num_return_bufs;
 
-	memset(&addr, 0, addr_len);
-	addr.sin_family			= AF_INET;
-	pthread_mutex_lock(&remotes_mutex);
-	addr.sin_addr.s_addr		= context.remotes[dest]->na.ip_addr;
-	addr.sin_port			= htons(context.remotes[dest]->na.msg_port);
-	pthread_mutex_unlock(&remotes_mutex);
+	struct ibv_sge sge;
+	sge.addr	= header_mem_buf.addr;
+	sge.length	= sizeof(struct msg_header)
+			+ sizeof(struct long_desc) * num_items
+			+ sizeof(struct long_desc) * num_return_bufs;
+	sge.lkey	= header_mem_buf.na->lkey;
 
 	for (i = 0; i < num_items; ++i) {
 
@@ -472,12 +552,13 @@ ripc_send_long(
 				mem_buf.na->rkey);
 
 		DEBUG("Message reads: %s", (char *)mem_buf.addr);
+
+retry:
 		/*
 		 * Now, check if we have a return buffer available. If so, push the
 		 * contents of the long word to the other side; if not, just send the
 		 * descriptor item and wait for the other side to pull the data.
 		 */
-		retry:
 		return_mem_buf = return_buf_list_get(dest, length[i]);
 		if (return_mem_buf.size == -1) {//no return buffer available
 			DEBUG("Did not find a return buffer for item %u (checked: dest %u, length %zu)",
@@ -490,32 +571,23 @@ ripc_send_long(
                       return_mem_buf.addr, return_mem_buf.size, return_mem_buf.na->rkey);
 
 		struct ibv_sge rdma_sge;
-		rdma_sge.addr = msg[i].addr;
-		rdma_sge.length = length[i];
-		rdma_sge.lkey = mem_buf.na->lkey;
+		rdma_sge.addr			= msg[i].addr;
+		rdma_sge.length			= length[i];
+		rdma_sge.lkey			= mem_buf.na->lkey;
 
 		struct ibv_send_wr rdma_wr;
-		rdma_wr.next = NULL;
-		rdma_wr.num_sge = 1;
-		rdma_wr.opcode = IBV_WR_RDMA_WRITE;
-		rdma_wr.send_flags = IBV_SEND_SIGNALED;
-		rdma_wr.sg_list = &rdma_sge;
-		rdma_wr.wr_id = 0xdeadbeef;
-		rdma_wr.wr.rdma.remote_addr = return_mem_buf.addr;
-		rdma_wr.wr.rdma.rkey = return_mem_buf.na->rkey;
+		rdma_wr.next			= NULL;
+		rdma_wr.num_sge			= 1;
+		rdma_wr.opcode			= IBV_WR_RDMA_WRITE;
+		rdma_wr.send_flags		= IBV_SEND_SIGNALED;
+		rdma_wr.sg_list			= &rdma_sge;
+		rdma_wr.wr_id			= 0xdeadbeef;
+		rdma_wr.wr.rdma.remote_addr	= return_mem_buf.addr;
+		rdma_wr.wr.rdma.rkey		= return_mem_buf.na->rkey;
 		struct ibv_send_wr *rdma_bad_wr;
 
-		struct ibv_qp *rdma_qp;
-		struct ibv_cq *rdma_cq, *tmp_cq;
-		struct ibv_comp_channel *rdma_cchannel;
-		pthread_mutex_lock(&remotes_mutex);
-		rdma_qp = context.remotes[dest]->na.rdma_qp;
-		rdma_cq = context.remotes[dest]->na.rdma_send_cq;
-		rdma_cchannel = context.remotes[dest]->na.rdma_cchannel;
-		pthread_mutex_unlock(&remotes_mutex);
-
 		ret = ibv_post_send(
-				rdma_qp,
+				dest_qp,
 				&rdma_wr,
 				&rdma_bad_wr);
 		if (ret) {
@@ -524,20 +596,21 @@ ripc_send_long(
 			DEBUG("Posted write to return buffer for message item %u", i);
 		}
 
+		struct ibv_cq *tmp_cq;
 		struct ibv_wc rdma_wc;
 		void *ctx; //unused
 
 		do {
-			ibv_get_cq_event(rdma_cchannel,
+			ibv_get_cq_event(dest_cchannel,
 			&tmp_cq,
 			&ctx);
 
-			assert(tmp_cq == rdma_cq);
+			assert(tmp_cq == dest_cq);
 
-			ibv_ack_cq_events(rdma_cq, 1);
-			ibv_req_notify_cq(rdma_cq, 0);
+			ibv_ack_cq_events(dest_cq, 1);
+			ibv_req_notify_cq(dest_cq, 0);
 
-		} while (!(ibv_poll_cq(rdma_cq, 1, &rdma_wc)));
+		} while (!(ibv_poll_cq(dest_cq, 1, &rdma_wc)));
 
 		DEBUG("received completion message!");
 		if (rdma_wc.status) {
@@ -547,8 +620,8 @@ ripc_send_long(
 			goto retry; //return buffer was invalid, but maybe the next one will do
 		} else {
 			DEBUG("Result: %s", ibv_wc_status_str(rdma_wc.status));
-			msg[i].transferred = 1;
-			msg[i].addr = return_mem_buf.addr;
+			msg[i].transferred	= 1;
+			msg[i].addr		= return_mem_buf.addr;
 		}
 
 		free(return_mem_buf.na);
@@ -607,11 +680,34 @@ ripc_send_long(
 	}
 
 	//message item done, now send it
-	flags	= 0;
-	ret	= sendto(	context.na.msg_socket, (void*) hdr, header_mem_buf.size,
-				flags, (struct sockaddr*) &addr, addr_len);
-	if (ret < 0)
-		DEBUG("Failed to send UDP-message to service %hu", dest);
+	struct ibv_send_wr wr;
+	wr.next		= NULL;
+	wr.num_sge	= 1;
+	wr.opcode	= IBV_WR_SEND;
+	wr.send_flags	= IBV_SEND_SIGNALED;
+	wr.sg_list	= &sge;
+	wr.wr_id	= 0xdeadbeef;
+
+	struct ibv_send_wr *bad_wr = NULL;
+
+	ret = ibv_post_send(dest_qp, &wr, &bad_wr);
+
+	if (bad_wr) {
+		ERROR("Failed to post send: ", strerror(ret));
+		return ret;
+	} else {
+		DEBUG("Successfully posted send!");
+	}
+
+
+	struct ibv_wc wc;
+	while (!(ibv_poll_cq(dest_cq, 1, &wc))); //polling is probably faster here
+	DEBUG("received completion message!");
+	if (wc.status) {
+		ERROR("Send result: %s", ibv_wc_status_str(wc.status));
+		ERROR("QP state: %d", dest_qp->state);
+	}
+	DEBUG("Result: %s", ibv_wc_status_str(wc.status));
 
 	ripc_buf_free(hdr);
 
@@ -629,40 +725,41 @@ ripc_receive(
 		uint32_t **long_item_sizes,
 		uint16_t *num_long_items) {
 
-	struct ibv_wc wc;
-	void *ctx;
-	struct ibv_cq *cq, *recv_cq;
-	struct ibv_comp_channel *cchannel;
-	struct ibv_qp *qp;
-	uint32_t i;
-	int ret				= 0;
-	int flags			= 0;
-	struct sockaddr_in addr;
-	socklen_t len			= sizeof(addr);
-	struct msg_header *hdr		= (struct msg_header*) malloc(RECV_BUF_SIZE);
-	struct service_id *service	= context.services[service_id];
+	struct service_id *service;
 	struct receive_list *recv_item;
+	struct msg_header *hdr;
+	int ret = 0;
+	uint32_t i;
 
+	DEBUG("receive called from service_id %d", service_id);
+
+	pthread_mutex_lock(&services_mutex);
+	service		= context.services[service_id];
 	assert(service);
 
-	memset(&addr, 0, len);
-	addr.sin_family			= AF_INET;
-	addr.sin_addr.s_addr		= INADDR_ANY;
-
 restart:
-	//Polling on the receive_list
+	pthread_mutex_lock(&receive_mutex);
+	if (service->na.recv_list)
+		goto received;
+
 	do {
-		pthread_mutex_lock(&services_mutex);
-		if (service->na.recv_list)
-			break;
 		pthread_mutex_unlock(&services_mutex);
-	} while (true);
 
-	DEBUG("received!");
+		DEBUG("Waking the receiver-thread.");
+		pthread_cond_signal(&receiving_cond); //Wake up receiver thread
+		DEBUG("Going to sleep.");
+		pthread_cond_wait(&receiving_cond, &receive_mutex); //Wait until the receiver thread found something
+		DEBUG("Woke up");
 
-	recv_item		= service->na.recv_list;
-	hdr			= (struct msg_header*) recv_item->buffer;
-	service->na.recv_list	= recv_item->next;
+		pthread_mutex_lock(&services_mutex);
+	} while (!(service->na.recv_list)); // If this fails, the receiver thread received a msg for another service
+
+received:
+	//The receiving list of the service has an entry (services_mutex is hold!)
+
+	recv_item               = service->na.recv_list;
+	hdr                     = (struct msg_header*) recv_item->buffer;
+	service->na.recv_list   = recv_item->next;
 	free(recv_item);
 	pthread_mutex_unlock(&services_mutex);
 
@@ -674,14 +771,11 @@ restart:
 
 	DEBUG("Message type is %#x", hdr->type);
 
-	struct short_header *msg	= (struct short_header*) ((uint64_t) hdr
-					+ sizeof(struct msg_header));
+	struct short_header *msg	= (struct short_header*) ((uint64_t) hdr + sizeof(struct msg_header));
 
-	struct long_desc *long_msg	= (struct long_desc*) ((uint64_t) msg
-					+ sizeof(struct short_header) * hdr->short_words);
+	struct long_desc *long_msg	= (struct long_desc*) (msg + sizeof(struct short_header) * hdr->short_words);
 
-	struct long_desc *return_bufs	= (struct long_desc*) ((uint64_t) long_msg
-					+ sizeof(struct long_desc) * hdr->long_words);
+	struct long_desc *return_bufs	= (struct long_desc*) (long_msg + sizeof(struct long_desc) * hdr->long_words);
 
 	if (hdr->short_words) {
 		*short_items = malloc(sizeof(void *) * hdr->short_words);
@@ -696,6 +790,7 @@ restart:
 	for (i = 0; i < hdr->short_words; ++i) {
 		(*short_items)[i] = (void *)((uint64_t) hdr + (uint64_t) msg[i].offset);
 		(*short_item_sizes)[i] = msg[i].size;
+		DEBUG("Short word %u reads:\n%s", i, (char *) (*short_items)[i]);
 	}
 
 	if (hdr->long_words) {
@@ -720,7 +815,7 @@ restart:
 			DEBUG("Sender used return buffer at address %lx",
 					long_msg[i].addr);
 			(*long_items)[i] = (void *)long_msg[i].addr;
-			(*long_item_sizes)[i] = (uint32_t) long_msg[i].length;
+			(*long_item_sizes)[i] = long_msg[i].length;
 			continue;
 		}
 
@@ -775,8 +870,8 @@ restart:
 
 		struct ibv_wc rdma_wc;
 
+		void *ctx;
 		do {
-#if(0)
 			ibv_get_cq_event(rdma_cchannel,
 			&tmp_cq,
 			&ctx);
@@ -791,7 +886,6 @@ restart:
 
 			ibv_ack_cq_events(rdma_cq, 1);
 			ibv_req_notify_cq(rdma_cq, 0);
-#endif
 
 		} while (!(ibv_poll_cq(rdma_cq, 1, &rdma_wc)));
 

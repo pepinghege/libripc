@@ -27,7 +27,7 @@
 
 #define	RECV_BUF_SIZE	1024
 
-struct receive_list {
+struct receive_list{
 	void *buffer;
 	struct receive_list *next;
 };
@@ -45,16 +45,12 @@ struct netarch_remote_context {
 	struct ibv_comp_channel *rdma_cchannel;
 	in_addr_t ip_addr;
 	uint16_t rdma_listen_port;
-	uint16_t msg_port;
 };
 
 struct netarch_library_context {
 	in_addr_t ip_addr;
 	in_addr_t bcast_ip_addr;
-	pthread_mutex_t socket_mutex;
 	uint16_t conn_listen_port;
-	uint16_t msg_listen_port;
-	int msg_socket;
 	struct rdma_event_channel *echannel;
 	uint16_t lid;
 	uint8_t port_num;
@@ -72,5 +68,7 @@ void netarch_init(void);
 void *start_receiver(void*);
 
 pthread_t msg_receiver_thread;
+pthread_cond_t receiving_cond;
+pthread_mutex_t receive_mutex;
 
 #endif /* !__IWARP_COMMON_H__ */

@@ -59,7 +59,6 @@ mem_buf_t ripc_alloc_recv_buf(size_t size) {
 	}
 
 	assert(buf);
-redo:
 	ret.na = ibv_reg_mr(
                 context.na.pd,
                 buf,
@@ -67,8 +66,6 @@ redo:
                 IBV_ACCESS_LOCAL_WRITE |
                 IBV_ACCESS_REMOTE_READ |
                 IBV_ACCESS_REMOTE_WRITE);
-	if (!ret.na)
-		goto redo;
 	DEBUG("mr buffer address is %p, size %zu", ret.na->addr, ret.na->length);
         ret.addr = (uint64_t) ret.na->addr;
         ret.size = ret.na->length;
@@ -101,5 +98,37 @@ uint8_t ripc_buf_register(void *buf, size_t size) {
         }
         used_buf_list_add(mem_buf);
 	return mem_buf.na ? 0 : 1;
+}
+
+
+void post_new_recv_buf(struct ibv_qp *qp) {
+	struct ibv_sge *list;
+	struct ibv_recv_wr *wr, *bad_wr;
+	uint32_t i;
+	int ret;
+
+        mem_buf_t mem_buf	= ripc_alloc_recv_buf(RECV_BUF_SIZE);
+
+	list			= malloc(sizeof(struct ibv_sge));
+	list->addr		= mem_buf.addr;
+	list->length		= mem_buf.size;
+	list->lkey		= mem_buf.na->lkey;
+
+	wr			= malloc(sizeof(struct ibv_recv_wr));
+	wr->wr_id		= (uint64_t)wr;
+	wr->sg_list		= list;
+	wr->num_sge		= 1;
+	wr->next		= NULL;
+
+	bad_wr			= NULL;
+
+	ret = ibv_post_recv(qp, wr, &bad_wr);
+	if (ret) {
+		ERROR("Failed to post receive item to QP %u! Code: %d (%s)", qp->qp_num, ret, strerror(ret));
+	} else {
+		add_cq_to_list(qp->recv_cq);
+		DEBUG("Posted receive buffer at address %lx to QP %u",
+                      mem_buf.addr, qp->qp_num);
+	}
 }
 
