@@ -26,9 +26,9 @@ int main(void) {
 
 	ripc_register_service_id(SERVER_SERVICE_ID);
 	void **short_items = NULL, **long_items = NULL;
-	size_t length[WORDS_PER_PACKET];
+	uint32_t length[WORDS_PER_PACKET];
 	void *return_buf_array[SERVER_RETURN_BUFFERS];
-	size_t return_buf_length_array[SERVER_RETURN_BUFFERS];
+	uint32_t return_buf_length_array[SERVER_RETURN_BUFFERS];
 
 	sleep(1);
 
@@ -74,17 +74,12 @@ int main(void) {
 
 		DEBUG("Received message: %s\n", (char*) long_items[0]);
 		//printf("pingpong %d\n", ++count);
-		size_t *sizes = (size_t*) malloc(num_long);
-		uint16_t k;
-		for (k = 0; k < num_long; k++) {
-			sizes[k] = (size_t) long_sizes[k];
-		}
 
 		ripc_send_long(
 				SERVER_SERVICE_ID,
 				from,
 				long_items,
-				sizes,
+				long_sizes,
 				num_long,
 				return_buf_array,
 				return_buf_length_array,

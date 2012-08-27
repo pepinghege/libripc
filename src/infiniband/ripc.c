@@ -110,11 +110,11 @@ ripc_send_short(
 		uint16_t src,
 		uint16_t dest,
 		void **buf,
-		size_t *length,
-		uint32_t num_items,
+		uint32_t *length,
+		uint16_t num_items,
 		void **return_bufs,
-		size_t *return_buf_lengths,
-		uint32_t num_return_bufs) {
+		uint32_t *return_buf_lengths,
+		uint16_t num_return_bufs) {
 
 	DEBUG("Starting short send: %u -> %u (%u items)", src, dest, num_items);
 
@@ -216,7 +216,7 @@ ripc_send_short(
 	for (i = 0; i < num_return_bufs; ++i) {
 		if (return_buf_lengths[i] == 0)
 			continue;
-		DEBUG("Found return buffer: address %p, size %zu",
+		DEBUG("Found return buffer: address %p, size %u",
 				return_bufs[i],
 				return_buf_lengths[i]);
 
@@ -338,11 +338,11 @@ ripc_send_long(
 		uint16_t src,
 		uint16_t dest,
 		void **buf,
-		size_t *length,
-		uint32_t num_items,
+		uint32_t *length,
+		uint16_t num_items,
 		void **return_bufs,
-		size_t *return_buf_lengths,
-		uint32_t num_return_bufs) {
+		uint32_t *return_buf_lengths,
+		uint16_t num_return_bufs) {
 
 	DEBUG("Starting long send: %u -> %u (%u items)", src, dest, num_items);
 
@@ -408,7 +408,7 @@ ripc_send_long(
 		msg[i].length = length[i];
 		msg[i].rkey = mem_buf.na->rkey;
 
-		DEBUG("Long word %u: addr %lx, length %zu, rkey %#x",
+		DEBUG("Long word %u: addr %lx, length %u, rkey %#x",
 				i,
 				mem_buf.addr,
 				length[i],
@@ -423,7 +423,7 @@ ripc_send_long(
 		retry:
 		return_mem_buf = return_buf_list_get(dest, length[i]);
 		if (return_mem_buf.size == -1) {//no return buffer available
-			DEBUG("Did not find a return buffer for item %u (checked: dest %u, length %zu)",
+			DEBUG("Did not find a return buffer for item %u (checked: dest %u, length %u)",
 					i,
 					dest,
 					length[i]);
@@ -501,7 +501,7 @@ ripc_send_long(
 	for (i = 0; i < num_return_bufs; ++i) {
 		if (return_buf_lengths[i] == 0)
 			continue;
-		DEBUG("Found return buffer: address %p, size %zu",
+		DEBUG("Found return buffer: address %p, size %u",
 				return_bufs[i],
 				return_buf_lengths[i]);
 
