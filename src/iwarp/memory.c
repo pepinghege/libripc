@@ -108,6 +108,8 @@ void post_new_recv_buf(struct ibv_qp *qp) {
 	int ret;
 
         mem_buf_t mem_buf	= ripc_alloc_recv_buf(RECV_BUF_SIZE);
+	if (mem_buf.na == INVALID_NETARCH_MEM_BUF)
+		ERROR("Failed to alloc memory buffer");
 
 	list			= malloc(sizeof(struct ibv_sge));
 	list->addr		= mem_buf.addr;
