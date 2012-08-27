@@ -875,6 +875,7 @@ received:
 
 		void *ctx;
 		do {
+#if(0)
 			ibv_get_cq_event(rdma_cchannel,
 			&tmp_cq,
 			&ctx);
@@ -889,6 +890,7 @@ received:
 
 			ibv_ack_cq_events(rdma_cq, 1);
 			ibv_req_notify_cq(rdma_cq, 0);
+#endif
 
 		} while (!(ibv_poll_cq(rdma_cq, 1, &rdma_wc)));
 
