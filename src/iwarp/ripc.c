@@ -178,7 +178,7 @@ void netarch_init(void) {
 
 void *start_receiver(void *arg) {
 	struct sockaddr_in any_addr;
-	socklen_t addr_len;
+	socklen_t addr_len		= sizeof(any_addr);
 	mem_buf_t mem_buf;
 	int flags			= 0;
 
@@ -190,7 +190,6 @@ void *start_receiver(void *arg) {
 		memset(&any_addr, 0, addr_len);
 		any_addr.sin_family		= AF_INET;
 		any_addr.sin_addr.s_addr	= INADDR_ANY;
-		addr_len			= sizeof(any_addr);
 
 		mem_buf				= ripc_alloc_recv_buf(RECV_BUF_SIZE);
 
