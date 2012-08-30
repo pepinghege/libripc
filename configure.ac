@@ -130,11 +130,6 @@ case $SUBNETARCH in
 	AC_DEFINE([SUBNETARCH_PREFIX], ["siw_"], [Enable softiwarp network subarchitecture])
 	AC_DEFINE([SUBNETARCH_PREFIX_LEN], [4], [Enable softiwarp network subarchitecture])
 
-	AC_CHECK_HEADER([softiwarp/siw.h],[],[
-		echo "Error: Libsiw development headers not found!"
-		exit -1
-	])
-	;;
 esac
 
 
