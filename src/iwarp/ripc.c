@@ -241,11 +241,11 @@ ripc_send_short(
 		uint16_t src,
 		uint16_t dest,
 		void **buf,
-		size_t *length,
-		uint32_t num_items,
+		uint32_t *length,
+		uint16_t num_items,
 		void **return_bufs,
-		size_t *return_buf_lengths,
-		uint32_t num_return_bufs) {
+		uint32_t *return_buf_lengths,
+		uint16_t num_return_bufs) {
 
 	DEBUG("Starting short send: %u -> %u (%u items)", src, dest, num_items);
 
@@ -254,7 +254,7 @@ ripc_send_short(
 		resolve(src, dest);
 	assert(context.remotes[dest]);
 
-	uint32_t i;
+	uint16_t i;
 	int ret, flags;
 	uint32_t total_data_length	= 0;
 	uint32_t total_msg_length	= 0;
@@ -398,11 +398,11 @@ ripc_send_long(
 		uint16_t src,
 		uint16_t dest,
 		void **buf,
-		size_t *length,
-		uint32_t num_items,
+		uint32_t *length,
+		uint16_t num_items,
 		void **return_bufs,
-		size_t *return_buf_lengths,
-		uint32_t num_return_bufs) {
+		uint32_t *return_buf_lengths,
+		uint16_t num_return_bufs) {
 
 	DEBUG("Starting long send: %u -> %u (%u items)", src, dest, num_items);
 
@@ -411,7 +411,7 @@ ripc_send_long(
 		create_rdma_connection(src, dest);
 	}
 
-	uint32_t i;
+	uint16_t i;
 	int ret, flags;
 	struct sockaddr_in addr;
 	socklen_t addr_len		= sizeof(addr);
